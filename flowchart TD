@@ -1,0 +1,54 @@
+flowchart TD
+    subgraph "User Interface"
+        U[User] --> S[Slack]
+    end
+
+    subgraph "Bot System"
+        S <--> SI[Slack Integration Layer]
+        SI <--> RL[Rate Limiting Service]
+        RL <--> C[Core Bot Logic]
+        C <--> NLU[Natural Language Understanding]
+        C <--> KP[Knowledge Processing]
+        C <--> RM[Response Management]
+    end
+
+    subgraph "Data Sources"
+        KP <--> GD[Google Drive MCP]
+        KP <--> NT[Notion API]
+        KP <--> WS[Web Scraping Module]
+        KP <--> SA[Slack Archive]
+        KP <--> AT[Airtable API]
+        KP <--> CAL[Calendar Integration]
+        KP <--> WK[Wiki API]
+        KP <--> EM[Email Integration]
+        GD --> GDocs[Google Documents]
+        NT --> NPage[Notion Pages]
+        WS --> Web[Web Content]
+        SA --> SMsg[Slack Messages & Threads]
+        AT --> ATables[Airtable Bases]
+        CAL --> Events[Calendar Events]
+        WK --> WPages[Wiki Pages]
+        EM --> EMail[Email Content]
+    end
+
+    subgraph "Processing Components"
+        NLU <--> INT[Intent Recognition]
+        NLU <--> ER[Entity Recognition]
+        KP <--> VS[Vector Search]
+        KP <--> CM[Claude MCP]
+        RM <--> FMT[Response Formatting]
+        RM <--> CT[Context Tracking]
+    end
+
+    subgraph "Data Storage"
+        VS <--> VDB[(Vector Database)]
+        CT <--> CDB[(Conversation History)]
+        CM <--> KB[(Knowledge Base)]
+        RL <--> RLDB[(Rate Limit Records)]
+    end
+
+    subgraph "Authentication & Security"
+        SI <--> AUTH[Authentication Layer]
+        AUTH <--> RBAC[Role-Based Access Control]
+        AUTH <--> CRD[Credential Management]
+    end
