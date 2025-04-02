@@ -4,8 +4,10 @@
 
 # Credentials
 credentials/*.json
-credentials copy/*.json
 !credentials/example_*.json
+credentials\ copy/
+**/credentials\ copy/
+**/credentials copy/
 
 # Database files
 *.db
