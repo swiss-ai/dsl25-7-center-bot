@@ -4,6 +4,7 @@ import os
 import json
 import logging
 import asyncio
+import time
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from fastapi import Depends
@@ -63,13 +64,7 @@ async def handle_app_mention(event: dict):
         db = SessionLocal()
         
         try:
-            # Post a typing indicator
-            client.chat_postMessage(
-                channel=channel_id,
-                text="Thinking...",
-                thread_ts=thread_ts,
-                mrkdwn=True
-            )
+            # Skip typing indicator - we'll just send a direct response instead
             
             # Get or create user
             user = await ConversationManager.get_or_create_user(
@@ -110,8 +105,8 @@ async def handle_app_mention(event: dict):
             )
             
             # Use Claude MCP with tools and history - ALWAYS enable tools
-            # Get the needed dependencies
-            from main import document_processor, gdrive_mcp
+            # Get dependencies from main to avoid circular imports
+            from main import document_processor, gdrive_mcp, web_content_manager
             
             # Always force tool use to ensure knowledge-based responses
             claude_response = await claude_mcp_request(
@@ -119,7 +114,8 @@ async def handle_app_mention(event: dict):
                 conversation_history=conversation_history,
                 enable_tool_use=True,  # Always enable tools to restrict to knowledge base
                 document_processor=document_processor,
-                gdrive_mcp=gdrive_mcp
+                gdrive_mcp=gdrive_mcp,
+                web_content_manager=web_content_manager
             )
             
             # Extract text response
@@ -133,20 +129,14 @@ async def handle_app_mention(event: dict):
                 content=response_text
             )
             
-            # Try to delete the "Thinking..." message
-            try:
-                recent_messages = await get_thread_history(channel_id, thread_ts)
-                for msg in recent_messages:
-                    if msg.get("text") == "Thinking...":
-                        client.chat_delete(
-                            channel=channel_id,
-                            ts=msg.get("ts")
-                        )
-                        break
-            except Exception as delete_error:
-                logger.warning(f"Failed to delete 'Thinking...' message: {delete_error}")
+            # Slack message character limit (40,000 chars to be safe)
+            SLACK_CHAR_LIMIT = 40000
             
-            # Send the response back to Slack
+            # Truncate response if needed
+            if len(response_text) > SLACK_CHAR_LIMIT:
+                response_text = response_text[:SLACK_CHAR_LIMIT-100] + "\n\n[Response truncated due to length]"
+            
+            # Send a single response message
             client.chat_postMessage(
                 channel=channel_id,
                 text=response_text,
@@ -181,12 +171,7 @@ async def handle_direct_message(event: dict):
         db = SessionLocal()
         
         try:
-            # Post a typing indicator
-            client.chat_postMessage(
-                channel=channel_id,
-                text="Thinking...",
-                mrkdwn=True
-            )
+            # Skip typing indicator - we'll just send a direct response instead
             
             # Get or create user
             user = await ConversationManager.get_or_create_user(
@@ -225,8 +210,8 @@ async def handle_direct_message(event: dict):
             )
             
             # Use Claude MCP with tools and history
-            # Get the needed dependencies
-            from main import document_processor, gdrive_mcp
+            # Get dependencies from main to avoid circular imports
+            from main import document_processor, gdrive_mcp, web_content_manager
             
             # Use advanced MCP capabilities with tools
             claude_response = await claude_mcp_request(
@@ -234,7 +219,8 @@ async def handle_direct_message(event: dict):
                 conversation_history=conversation_history,
                 enable_tool_use=True,
                 document_processor=document_processor,
-                gdrive_mcp=gdrive_mcp
+                gdrive_mcp=gdrive_mcp,
+                web_content_manager=web_content_manager
             )
             
             # Extract text response
@@ -248,20 +234,14 @@ async def handle_direct_message(event: dict):
                 content=response_text
             )
             
-            # Try to delete the "Thinking..." message
-            try:
-                recent_messages = await get_thread_history(channel_id, ts)
-                for msg in recent_messages:
-                    if msg.get("text") == "Thinking...":
-                        client.chat_delete(
-                            channel=channel_id,
-                            ts=msg.get("ts")
-                        )
-                        break
-            except Exception as delete_error:
-                logger.warning(f"Failed to delete 'Thinking...' message: {delete_error}")
+            # Slack message character limit (40,000 chars to be safe)
+            SLACK_CHAR_LIMIT = 40000
             
-            # Send the response back to Slack
+            # Truncate response if needed
+            if len(response_text) > SLACK_CHAR_LIMIT:
+                response_text = response_text[:SLACK_CHAR_LIMIT-100] + "\n\n[Response truncated due to length]"
+            
+            # Send a single response message
             client.chat_postMessage(
                 channel=channel_id,
                 text=response_text,
@@ -304,13 +284,7 @@ async def handle_message_with_context(
         db = SessionLocal()
         
         try:
-            # Post a typing indicator
-            client.chat_postMessage(
-                channel=channel_id,
-                text="Thinking...",
-                thread_ts=thread_ts if thread_ts != ts else None,
-                mrkdwn=True
-            )
+            # Skip typing indicator - we'll just send a direct response instead
             
             # Get or create user
             user = await ConversationManager.get_or_create_user(
@@ -357,13 +331,17 @@ async def handle_message_with_context(
                 conversation_id=conversation.id
             )
             
+            # Get dependencies from main to avoid circular imports
+            from main import document_processor, gdrive_mcp, web_content_manager
+            
             # Use Claude MCP with tools and history - ALWAYS enable tools
             claude_response = await claude_mcp_request(
                 user_message=text,
                 conversation_history=conversation_history,
                 enable_tool_use=True,  # Always enable tools to restrict to knowledge base
                 document_processor=document_processor,
-                gdrive_mcp=gdrive_mcp
+                gdrive_mcp=gdrive_mcp,
+                web_content_manager=web_content_manager
             )
             
             # Extract text response
@@ -377,22 +355,14 @@ async def handle_message_with_context(
                 content=response_text
             )
             
-            # Send the response back to Slack
-            # Delete the "Thinking..." message first
-            # Get the latest message which should be the "Thinking..." message
-            try:
-                recent_messages = await get_thread_history(channel_id, thread_ts if thread_ts != ts else ts)
-                for msg in recent_messages:
-                    if msg.get("text") == "Thinking...":
-                        client.chat_delete(
-                            channel=channel_id,
-                            ts=msg.get("ts")
-                        )
-                        break
-            except Exception as delete_error:
-                logger.warning(f"Failed to delete 'Thinking...' message: {delete_error}")
+            # Slack message character limit (40,000 chars to be safe)
+            SLACK_CHAR_LIMIT = 40000
             
-            # Send the actual response
+            # Truncate response if needed
+            if len(response_text) > SLACK_CHAR_LIMIT:
+                response_text = response_text[:SLACK_CHAR_LIMIT-100] + "\n\n[Response truncated due to length]"
+            
+            # Send a single response message
             client.chat_postMessage(
                 channel=channel_id,
                 text=response_text,

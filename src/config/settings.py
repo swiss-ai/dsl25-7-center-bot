@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     # MCP Google Drive Integration
     MCP_GDRIVE_ENABLED: bool = os.getenv("MCP_GDRIVE_ENABLED", "false").lower() in ("true", "1", "t")
     MCP_CONFIG_PATH: Optional[str] = os.getenv("MCP_CONFIG_PATH")
+    
+    # Web Content Integration
+    WEB_CONTENT_ENABLED: bool = os.getenv("WEB_CONTENT_ENABLED", "false").lower() in ("true", "1", "t")
+    WEB_CONTENT_URLS_FILE: str = os.getenv("WEB_CONTENT_URLS_FILE", "web_content_urls.txt")
+    WEB_CONTENT_SYNC_INTERVAL: int = int(os.getenv("WEB_CONTENT_SYNC_INTERVAL", "86400"))  # Default: once per day in seconds
+    
+    # Firecrawl Integration
+    FIRECRAWL_ENABLED: bool = os.getenv("FIRECRAWL_ENABLED", "false").lower() in ("true", "1", "t")
+    FIRECRAWL_CONFIG_PATH: str = os.getenv("FIRECRAWL_CONFIG_PATH", "crawl_config.yaml")
 
 settings = Settings()
 

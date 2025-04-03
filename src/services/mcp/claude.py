@@ -21,9 +21,24 @@ through MCP tools and must use these tools to find information.
 
 IMPORTANT RESTRICTIONS:
 1. You MUST NEVER use information outside of what's available in the knowledge sources
-2. If the information is not in the knowledge base or Google Drive, say that you don't have that information
+2. If the information is not in the knowledge base, Google Drive, or fetched web content, say that you don't have that information
 3. DO NOT use your general knowledge to answer questions - only use the search and file access tools
-4. You MUST cite the source of all information you provide (file name, search result, etc.)
+4. You MUST cite the source of all information you provide (file name, search result, URL, etc.)
+
+DATA SOURCES YOU CAN ACCESS:
+1. Knowledge Base - Vector database with previously stored information
+2. Google Drive - Access to shared documents, spreadsheets, and PDFs
+3. Web Content - URLs that have been fetched and added to the knowledge base
+
+WEB CONTENT TOOLS:
+- web_fetch: Add a URL to the knowledge base - use this to retrieve information from websites
+- web_fetch_multiple: Add multiple URLs to the knowledge base in a single operation
+- web_search: Search previously fetched web content for specific information
+
+SPECIAL HANDLING FOR WEB CONTENT:
+- When the user asks about web content that might not be in your knowledge base, suggest using the web_fetch tool
+- When fetching web content, always provide clear citations including the URL source
+- For questions about fetched web content, use web_search to find the relevant information
 
 SPECIAL HANDLING FOR PDF FILES:
 - When users ask about PDF files, ALWAYS search Google Drive with the gdrive_search tool 
@@ -140,7 +155,7 @@ FETCH_DOCUMENT_TOOL = MCPTool(
             description="The source system",
             type="string",
             required=True,
-            enum=["drive", "notion", "slack", "wiki"]
+            enum=["drive", "notion", "slack", "wiki", "web"]
         )
     ]
 )
@@ -151,6 +166,13 @@ DEFAULT_TOOLS = [SEARCH_TOOL, FETCH_DOCUMENT_TOOL]
 try:
     from services.mcp.gdrive import GDRIVE_TOOLS
     DEFAULT_TOOLS.extend(GDRIVE_TOOLS)
+except ImportError:
+    pass
+
+# Import Web tools
+try:
+    from services.mcp.web_tools import WEB_TOOLS
+    DEFAULT_TOOLS.extend(WEB_TOOLS)
 except ImportError:
     pass
 
@@ -212,7 +234,8 @@ class ToolExecution:
         query: str, 
         source: str = "all", 
         document_processor=None,
-        gdrive_mcp=None
+        gdrive_mcp=None,
+        web_content_manager=None
     ) -> str:
         """
         Execute a search across knowledge sources.
@@ -222,6 +245,7 @@ class ToolExecution:
             source: The source to search in
             document_processor: Document processor instance (optional)
             gdrive_mcp: Google Drive MCP instance (optional)
+            web_content_manager: Web Content Manager instance (optional)
             
         Returns:
             Search results as text
@@ -236,7 +260,7 @@ class ToolExecution:
             try:
                 # Build filter criteria based on source
                 filter_criteria = None
-                if source != "all" and source != "drive":
+                if source != "all" and source != "drive" and source != "web":
                     filter_criteria = {"source": source}
                 
                 # Perform the search using the document processor
@@ -255,7 +279,8 @@ class ToolExecution:
                 kb_results = f"Error searching knowledge base: {str(e)}"
                 combined_results.append("## Knowledge Base Results\n" + kb_results)
         
-        # Then always search Google Drive directly too if it's available
+        # Then search Google Drive directly if it's available (commented out)
+        """
         gdrive_results = "No results found in Google Drive."
         if gdrive_mcp and (source == "all" or source == "drive"):
             try:
@@ -271,6 +296,20 @@ class ToolExecution:
                 logger.error(f"Error searching Google Drive: {e}")
                 gdrive_results = f"Error searching Google Drive: {str(e)}"
                 combined_results.append("## Google Drive Results\n" + gdrive_results)
+        """
+        
+        # Also search web content if it's available
+        web_results = "No results found in web content."
+        if web_content_manager and (source == "all" or source == "web"):
+            try:
+                # Search web content specifically
+                web_results = await web_content_manager.search_web_content(query, 3)
+                if web_results and "No results found" not in web_results:
+                    combined_results.append("## Web Content Results\n" + web_results)
+            except Exception as e:
+                logger.error(f"Error searching web content: {e}")
+                web_results = f"Error searching web content: {str(e)}"
+                combined_results.append("## Web Content Results\n" + web_results)
         
         # If no results at all
         if not combined_results:
@@ -284,7 +323,8 @@ class ToolExecution:
         document_id: str, 
         source: str, 
         document_processor=None,
-        gdrive_mcp=None
+        gdrive_mcp=None,
+        web_content_manager=None
     ) -> str:
         """
         Fetch a document from a specific source.
@@ -294,13 +334,15 @@ class ToolExecution:
             source: The source system
             document_processor: Document processor instance (optional)
             gdrive_mcp: Google Drive MCP instance (optional)
+            web_content_manager: Web Content Manager instance (optional)
             
         Returns:
             Document content
         """
         logger.info(f"Fetching document {document_id} from {source}")
         
-        # Handle Google Drive documents
+        # Handle Google Drive documents (commented out)
+        """
         if source == "drive" and gdrive_mcp:
             from services.mcp.gdrive import execute_gdrive_tool
             return await execute_gdrive_tool(
@@ -308,8 +350,45 @@ class ToolExecution:
                 {"file_id": document_id}, 
                 gdrive_mcp
             )
+        """
         
-        # Default to vector database retrieval
+        # Handle web source documents (using same vector DB infrastructure)
+        if source == "web":
+            # Default to vector database retrieval for web content
+            if not document_processor:
+                return f"Document {document_id} from {source}:\n- Document processor not initialized."
+            
+            try:
+                # Use the vector database to search for the document by ID
+                if not document_processor.vector_db:
+                    return f"Document {document_id} from {source}:\n- Vector database not initialized."
+                
+                # Try to get the document from the vector database with web source filter
+                result = document_processor.vector_db.get(
+                    ids=[document_id],
+                    where={"source": "web"}
+                )
+                
+                if not result or not result.get("documents") or not result["documents"]:
+                    return f"Web document {document_id} not found."
+                
+                # Format the result
+                content = result["documents"][0]
+                metadata = result["metadatas"][0] if "metadatas" in result else {}
+                
+                title = metadata.get("title", "Untitled")
+                url = metadata.get("url", "Unknown URL")
+                created_at = metadata.get("created_at", "Unknown date")
+                
+                header = f"# {title}\n\nURL: {url}\nDate: {created_at}\nSource: Web Content\n\n"
+                
+                return header + content
+                
+            except Exception as e:
+                logger.error(f"Error fetching web document: {e}")
+                return f"Error fetching web document {document_id}: {str(e)}"
+        
+        # Default to vector database retrieval for other sources
         if not document_processor:
             return f"Document {document_id} from {source}:\n- Document processor not initialized."
         
@@ -345,7 +424,8 @@ class ToolExecution:
         tool_name: str, 
         parameters: Dict[str, Any], 
         document_processor=None,
-        gdrive_mcp=None
+        gdrive_mcp=None,
+        web_content_manager=None
     ) -> str:
         """
         Execute a tool based on name and parameters.
@@ -364,17 +444,26 @@ class ToolExecution:
             if tool_name == "search":
                 query = parameters.get("query", "")
                 source = parameters.get("source", "all")
-                return await ToolExecution.execute_search(query, source, document_processor, gdrive_mcp)
+                return await ToolExecution.execute_search(query, source, document_processor, gdrive_mcp, web_content_manager)
             
             elif tool_name == "fetch_document":
                 document_id = parameters.get("document_id", "")
                 source = parameters.get("source", "")
-                return await ToolExecution.execute_fetch_document(document_id, source, document_processor, gdrive_mcp)
+                return await ToolExecution.execute_fetch_document(document_id, source, document_processor, gdrive_mcp, web_content_manager)
             
             # Handle Google Drive tools
             elif tool_name.startswith("gdrive_") and gdrive_mcp:
                 from services.mcp.gdrive import execute_gdrive_tool
                 return await execute_gdrive_tool(tool_name, parameters, gdrive_mcp)
+            
+            # Handle Web tools
+            elif tool_name.startswith("web_"):
+                from services.mcp.web_tools import execute_web_tool
+                from services.knowledge.datasources.web_content import WebContentManager
+                
+                # Create web content manager if needed
+                web_content_manager = WebContentManager(document_processor=document_processor)
+                return await execute_web_tool(tool_name, parameters, web_content_manager)
             
             else:
                 return f"Unknown tool: {tool_name}"
@@ -418,7 +507,8 @@ async def claude_mcp_request(
     tools: Optional[List[MCPTool]] = None,
     enable_tool_use: bool = False,
     document_processor=None,
-    gdrive_mcp=None
+    gdrive_mcp=None,
+    web_content_manager=None
 ) -> Dict[str, Any]:
     """
     Make a request to Claude using the MCP protocol with optional tools.
@@ -486,7 +576,8 @@ async def claude_mcp_request(
                     tool_name, 
                     tool_parameters,
                     document_processor,
-                    gdrive_mcp
+                    gdrive_mcp,
+                    web_content_manager
                 )
                 
                 # Add tool result to messages

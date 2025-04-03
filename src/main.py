@@ -23,7 +23,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Validate environment variables
-validate_settings()
+try:
+    validate_settings()
+except Exception as e:
+    logger.error(f"Settings validation error: {e}")
+    # We'll continue running with default settings
 
 app = FastAPI(title="AI Center Bot")
 
@@ -47,6 +51,9 @@ app.add_middleware(
 vector_db = None
 document_processor = None
 gdrive_mcp = None
+web_content_manager = None
+web_content_sync_service = None
+firecrawl_manager = None
 
 # Include routers
 app.include_router(slack_router, prefix="/api/slack", tags=["slack"])
@@ -60,7 +67,7 @@ async def health_check():
 @app.get("/status")
 async def status():
     """Return the status of various components."""
-    global vector_db, gdrive_mcp
+    global vector_db, gdrive_mcp, web_content_manager, web_content_sync_service, firecrawl_manager
     
     # Check if MCP Google Drive server is running
     gdrive_status = "not_initialized"
@@ -77,6 +84,42 @@ async def status():
                 logger.error(f"Error checking MCP server status: {e}")
                 gdrive_status = f"error: {str(e)}"
     
+    # Check if Web Content Manager is initialized
+    web_content_status = "not_initialized"
+    if web_content_manager:
+        if web_content_manager.web_fetch and web_content_manager.web_fetch.is_running:
+            web_content_status = "operational"
+        else:
+            web_content_status = "server_not_running"
+    
+    # Check web content sync status
+    web_sync_status = "not_initialized"
+    last_sync = None
+    if web_content_sync_service:
+        if web_content_sync_service.is_running:
+            web_sync_status = "operational"
+        else:
+            web_sync_status = "not_running"
+        
+        if web_content_sync_service.last_sync_time:
+            last_sync = web_content_sync_service.last_sync_time.isoformat()
+    
+    # Check firecrawl status
+    firecrawl_status = "not_initialized"
+    firecrawl_info = {}
+    if firecrawl_manager:
+        try:
+            status = firecrawl_manager.get_crawl_status()
+            firecrawl_status = "operational" if status.get("is_running", False) else "not_running"
+            firecrawl_info = {
+                "sites_configured": status.get("sites_configured", 0),
+                "sites_crawled": status.get("sites_crawled", 0),
+                "current_crawls": status.get("current_crawls", [])
+            }
+        except Exception as e:
+            logger.error(f"Error getting firecrawl status: {e}")
+            firecrawl_status = f"error: {str(e)}"
+    
     status_info = {
         "status": "operational",
         "components": {
@@ -84,9 +127,22 @@ async def status():
             "vector_db": "operational" if vector_db else "not_initialized",
             "rate_limiter": "operational" if settings.RATE_LIMIT_ENABLED else "disabled",
             "google_drive": gdrive_status,
-            "google_drive_type": "mcp" if settings.MCP_GDRIVE_ENABLED else "legacy"
+            "google_drive_type": "mcp" if settings.MCP_GDRIVE_ENABLED else "legacy",
+            "web_content": web_content_status,
+            "web_content_sync": web_sync_status,
+            "firecrawl": firecrawl_status
         },
-        "document_count": vector_db.count() if vector_db else 0
+        "document_count": vector_db.count() if vector_db else 0,
+        "web_content": {
+            "enabled": settings.WEB_CONTENT_ENABLED,
+            "last_sync": last_sync,
+            "sync_interval": f"{settings.WEB_CONTENT_SYNC_INTERVAL}s"
+        },
+        "firecrawl": {
+            "enabled": settings.FIRECRAWL_ENABLED,
+            "available": "yes" if 'FIRECRAWL_AVAILABLE' in globals() and FIRECRAWL_AVAILABLE else "no",
+            **firecrawl_info
+        }
     }
     
     return status_info
@@ -101,6 +157,21 @@ def get_gdrive_mcp():
     global gdrive_mcp
     return gdrive_mcp
 
+def get_web_content_manager():
+    """Dependency to get the Web Content Manager instance."""
+    global web_content_manager
+    return web_content_manager
+
+def get_web_content_sync_service():
+    """Dependency to get the Web Content Sync Service instance."""
+    global web_content_sync_service
+    return web_content_sync_service
+
+def get_firecrawl_manager():
+    """Dependency to get the Firecrawl Manager instance."""
+    global firecrawl_manager
+    return firecrawl_manager
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
@@ -113,7 +184,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     """Initialize components on application startup."""
-    global vector_db, document_processor, gdrive_mcp
+    global vector_db, document_processor, gdrive_mcp, firecrawl_manager
     
     logger.info("Initializing database...")
     init_db()
@@ -130,6 +201,11 @@ async def startup_event():
     document_processor = DocumentProcessor(vector_db=vector_db)
     
     # Initialize Google Drive integration
+    gdrive_enabled = False
+    gdrive_mcp = None
+    
+    # Google Drive functionality commented out
+    """
     if settings.MCP_GDRIVE_ENABLED and settings.MCP_CONFIG_PATH:
         logger.info("Initializing MCP Google Drive integration...")
         try:
@@ -146,28 +222,37 @@ async def startup_event():
                 # We'll start the server in a background task to avoid blocking startup
                 gdrive_mcp = MCPGoogleDrive(mcp_config_path=settings.MCP_CONFIG_PATH)
                 
-                # Start the MCP server in a background task
-                server_task = asyncio.create_task(gdrive_mcp.start_server())
-                logger.info("MCP Google Drive integration initialized. Server starting in background...")
-                
-                # We're not awaiting the task, but we can add a callback to log when it's done
-                def server_started_callback(task):
-                    try:
-                        result = task.result()
-                        if result:
-                            logger.info("MCP Google Drive server started successfully")
-                        else:
-                            logger.error("Failed to start MCP Google Drive server")
-                    except Exception as e:
-                        logger.error(f"Error in MCP Google Drive server startup: {e}")
-                
-                server_task.add_done_callback(server_started_callback)
+                try:
+                    # Start the MCP server in a background task
+                    server_task = asyncio.create_task(gdrive_mcp.start_server())
+                    logger.info("MCP Google Drive integration initialized. Server starting in background...")
+                    
+                    # We're not awaiting the task, but we can add a callback to log when it's done
+                    def server_started_callback(task):
+                        try:
+                            result = task.result()
+                            if result:
+                                logger.info("MCP Google Drive server started successfully")
+                            else:
+                                logger.error("Failed to start MCP Google Drive server")
+                        except Exception as e:
+                            logger.error(f"Error in MCP Google Drive server startup: {e}")
+                    
+                    server_task.add_done_callback(server_started_callback)
+                    gdrive_enabled = True
+                    
+                except Exception as server_error:
+                    logger.error(f"Error starting MCP Google Drive server: {server_error}")
+                    gdrive_mcp = None
                 
         except Exception as e:
             logger.error(f"Error initializing MCP Google Drive integration: {e}")
             # Log the full traceback for better debugging
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            try:
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+            except:
+                logger.error("Could not log traceback")
             gdrive_mcp = None
             
     # Legacy direct Google Drive integration
@@ -183,6 +268,135 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Error initializing Legacy Google Drive integration: {e}")
             gdrive_mcp = None
+    """
+    
+    # Initialize Web Content Manager for web fetching
+    logger.info("Initializing Web Content integration...")
+    try:
+        # Import and initialize the Web Content Manager and MCP Web Fetch
+        from services.knowledge.datasources.web_content import WebContentManager
+        from services.mcp.web_fetch import MCPWebFetch
+        
+        # Initialize the web fetch integration
+        web_fetch = MCPWebFetch()
+        web_content_manager = WebContentManager(
+            document_processor=document_processor,
+            web_fetch=web_fetch
+        )
+        
+        # Start the web fetch server in a background task
+        web_server_task = asyncio.create_task(web_fetch.start_server())
+        
+        # Add callback to log when it's done
+        def web_server_started_callback(task):
+            try:
+                result = task.result()
+                if result:
+                    logger.info("MCP Web Fetch server started successfully")
+                else:
+                    logger.error("Failed to start MCP Web Fetch server")
+            except Exception as e:
+                logger.error(f"Error in MCP Web Fetch server startup: {e}")
+        
+        web_server_task.add_done_callback(web_server_started_callback)
+        logger.info("Web Content integration initialized. Server starting in background...")
+    
+    except Exception as e:
+        logger.error(f"Error initializing Web Content integration: {e}")
+        # Log the full traceback for better debugging
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        web_content_manager = None
+
+    # Initialize Web Content Sync Service if enabled
+    if settings.WEB_CONTENT_ENABLED:
+        try:
+            import traceback
+            # Import and initialize the Web Content Sync Service
+            from services.knowledge.web_content_sync import WebContentSyncService
+            from services.mcp.web_fetch import MCPWebFetch
+            
+            # Create and initialize the Web Content Sync Service
+            web_fetch = MCPWebFetch()
+            web_content_sync_service = WebContentSyncService(
+                document_processor=document_processor,
+                web_fetch=web_fetch
+            )
+            
+            # Start the scheduled sync in a background task
+            sync_task = asyncio.create_task(web_content_sync_service.start_scheduled_sync())
+            
+            # Also trigger an initial sync
+            initial_sync_task = asyncio.create_task(web_content_sync_service.manual_sync())
+            
+            logger.info(f"Web Content sync service initialized with interval: {settings.WEB_CONTENT_SYNC_INTERVAL}s")
+            logger.info(f"Using URLs file: {settings.WEB_CONTENT_URLS_FILE}")
+            
+        except Exception as e:
+            logger.error(f"Error initializing Web Content sync service: {e}")
+            try:
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+            except:
+                logger.error("Could not log traceback")
+            web_content_sync_service = None
+    else:
+        logger.info("Web Content sync service disabled")
+        web_content_sync_service = None
+    
+    # Initialize Firecrawl if enabled
+    if settings.FIRECRAWL_ENABLED:
+        try:
+            # Check if Firecrawl is available
+            try:
+                from firecrawl import Crawler
+                FIRECRAWL_AVAILABLE = True
+            except ImportError:
+                logger.warning("Firecrawl package not installed. Install with 'pip install firecrawl'")
+                FIRECRAWL_AVAILABLE = False
+            
+            if FIRECRAWL_AVAILABLE:
+                # Initialize Firecrawl Manager
+                from services.knowledge.datasources.firecrawl_manager import FirecrawlManager
+                
+                logger.info("Initializing Firecrawl integration...")
+                firecrawl_manager = FirecrawlManager(
+                    config_path=settings.FIRECRAWL_CONFIG_PATH,
+                    document_processor=document_processor,
+                    vector_db=vector_db
+                )
+                
+                # Start the crawl service in a background task
+                crawl_task = asyncio.create_task(firecrawl_manager.start_crawl_service())
+                
+                # Add callback to log when it's done
+                def crawl_service_started_callback(task):
+                    try:
+                        result = task.result()
+                        if result:
+                            logger.info("Firecrawl service started successfully")
+                        else:
+                            logger.error("Failed to start Firecrawl service")
+                    except Exception as e:
+                        logger.error(f"Error in Firecrawl service startup: {e}")
+                
+                crawl_task.add_done_callback(crawl_service_started_callback)
+                logger.info(f"Firecrawl integration initialized with config: {settings.FIRECRAWL_CONFIG_PATH}")
+            else:
+                logger.warning("Firecrawl integration disabled due to missing dependencies")
+                firecrawl_manager = None
+                
+        except Exception as e:
+            logger.error(f"Error initializing Firecrawl integration: {e}")
+            # Log the full traceback for better debugging
+            try:
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+            except:
+                logger.error("Could not log traceback")
+            firecrawl_manager = None
+    else:
+        logger.info("Firecrawl integration disabled")
+        firecrawl_manager = None
     
     # Include knowledge routes after document_processor is initialized
     from api.knowledge_routes import router as knowledge_router
