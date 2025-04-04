@@ -1,3 +1,5 @@
+# This is a wrapper for the MCP Slack bot that uses the MCPClient to process queries.
+#it uses the Slack Bolt framework to handle events and send messages via MCP.
 import os
 import asyncio
 from dotenv import load_dotenv

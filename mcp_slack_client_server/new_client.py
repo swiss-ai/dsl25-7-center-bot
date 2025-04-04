@@ -1,3 +1,6 @@
+# This is a Python script that connects to an MCP server and interacts with it using the Anthropic API.
+# It allows users to send queries and receive responses, while also handling tool usage
+
 import asyncio
 from typing import Optional
 from contextlib import AsyncExitStack

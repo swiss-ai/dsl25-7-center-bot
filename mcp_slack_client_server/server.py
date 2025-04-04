@@ -1,3 +1,7 @@
+#this is the server code for the slack mcp client
+# it is a simple server that listens for requests from the client and executes the requested tool
+
+
 #!/usr/bin/env python
 
 import asyncio

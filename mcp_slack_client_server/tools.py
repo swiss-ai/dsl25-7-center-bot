@@ -1,3 +1,5 @@
+#this registers the tools for the slack mcp server
+
 # slack_mcp_server/tools.py
 
 #from services.mcp.claude import MCPTool, MCPToolParameter

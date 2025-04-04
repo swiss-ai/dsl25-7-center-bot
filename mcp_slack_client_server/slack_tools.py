@@ -1,3 +1,6 @@
+#this will call the slack client to execute the right tool
+
+
 # slack_mcp_server/slack_tools.py
 
 from slack_client import SlackClient

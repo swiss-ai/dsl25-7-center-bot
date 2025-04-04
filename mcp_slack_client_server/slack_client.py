@@ -1,3 +1,7 @@
+#this is a Slack client module that provides methods to interact with the Slack API.
+#(it makes the actual API calls to Slack)
+
+
 # slack_mcp_server/slack_client.py
 
 import os
