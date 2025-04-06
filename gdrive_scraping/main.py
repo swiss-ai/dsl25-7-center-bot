@@ -7,6 +7,7 @@ from extractor.slides import extract_text_from_slides
 from extractor.text import extract_text_from_txt
 from extractor.docx import extract_text_from_docx
 from extractor.pptx import extract_text_from_pptx
+from extractor.xlsx import extract_text_from_xlsx
 from chunking.splitter import chunk_text
 from vectorstore.chroma import store_chunks
 from sync import get_files_to_update, mark_file_synced
@@ -21,6 +22,7 @@ EXTENSIONS = {
     '.txt': extract_text_from_txt,
     '.docx': extract_text_from_docx,
     '.pptx': extract_text_from_pptx,
+    '.xlsx': extract_text_from_xlsx,
 }
 
 import logging

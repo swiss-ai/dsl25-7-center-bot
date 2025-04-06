@@ -5,7 +5,7 @@ from datetime import datetime
 SYNC_FILE = "last_sync.json"
 
 SUPPORTED_EXTENSIONS = {
-    '.pdf', '.md', '.gdoc', '.gsheet', '.gslides', '.txt', '.docx', '.pptx'
+    '.pdf', '.md', '.gdoc', '.gsheet', '.gslides', '.txt', '.docx', '.pptx', '.xlsx',
 }
 
 def load_synced():

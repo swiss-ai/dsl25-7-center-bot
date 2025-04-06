@@ -7,3 +7,5 @@ PyMuPDF
 python-dotenv
 python-docx
 python-pptx
+pandas
+openpyxl
