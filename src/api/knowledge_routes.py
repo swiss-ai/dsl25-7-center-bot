@@ -305,3 +305,101 @@ async def get_notion_status():
         status["configured_pages"] = notion_manager.configured_pages
     
     return status
+
+@router.post("/gdrive/sync")
+async def sync_google_drive(background_tasks: BackgroundTasks, max_files: Optional[int] = None):
+    """
+    Trigger a manual synchronization of Google Drive files.
+    The sync process runs in the background.
+    """
+    # Import here to avoid circular imports
+    from main import gdrive_manager
+    from config.settings import settings
+    
+    if not gdrive_manager:
+        raise HTTPException(status_code=503, detail="Google Drive manager not initialized")
+    
+    # Use the provided max_files or fall back to the configured value
+    sync_max_files = max_files or settings.GOOGLE_DRIVE_MAX_FILES
+    
+    # Run sync in the background
+    async def run_sync():
+        try:
+            await gdrive_manager.sync_all_files(max_files=sync_max_files)
+        except Exception as e:
+            logger.error(f"Error during Google Drive sync: {e}")
+    
+    background_tasks.add_task(run_sync)
+    
+    return {
+        "status": "sync_started",
+        "message": f"Google Drive sync started in background (max files: {sync_max_files})"
+    }
+
+@router.post("/gdrive/file/{file_id}")
+async def sync_google_drive_file(file_id: str):
+    """
+    Sync a specific Google Drive file.
+    """
+    # Import here to avoid circular imports
+    from main import gdrive_manager
+    
+    if not gdrive_manager:
+        raise HTTPException(status_code=503, detail="Google Drive manager not initialized")
+    
+    try:
+        result = await gdrive_manager.process_file_to_vector_db(file_id)
+        return {
+            "success": result,
+            "file_id": file_id,
+            "message": f"{'Successfully synced' if result else 'Failed to sync'} Google Drive file {file_id}"
+        }
+    except Exception as e:
+        logger.error(f"Error syncing Google Drive file {file_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error syncing Google Drive file: {str(e)}"
+        )
+
+@router.get("/gdrive/status")
+async def get_google_drive_status():
+    """
+    Get the status of the Google Drive integration.
+    """
+    # Import here to avoid circular imports
+    from main import gdrive_manager
+    from config.settings import settings
+    
+    status = {
+        "enabled": settings.GOOGLE_DRIVE_ENABLED,
+        "credentials_configured": bool(settings.GOOGLE_CREDENTIALS_PATH and settings.GOOGLE_TOKEN_PATH),
+        "max_files_per_sync": settings.GOOGLE_DRIVE_MAX_FILES,
+        "initialized": gdrive_manager is not None and hasattr(gdrive_manager, "service") and gdrive_manager.service is not None
+    }
+    
+    return status
+
+@router.get("/gdrive/search")
+async def search_google_drive(query: str, max_results: int = 10):
+    """
+    Search for files in Google Drive.
+    """
+    # Import here to avoid circular imports
+    from main import gdrive_manager
+    
+    if not gdrive_manager:
+        raise HTTPException(status_code=503, detail="Google Drive manager not initialized")
+    
+    try:
+        results = await gdrive_manager.search_files(query, max_results)
+        return {
+            "query": query,
+            "count": len(results),
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Error searching Google Drive: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error searching Google Drive: {str(e)}"
+        )

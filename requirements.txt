@@ -20,6 +20,9 @@ slack-bolt>=1.18.0
 # Claude/Anthropic
 anthropic>=0.5.0
 
+# MCP (Model Cloud Protocol) for advanced tool use
+mcp>=0.1.0
+
 # Utilities
 python-multipart>=0.0.6
 redis>=4.6.0
@@ -30,6 +33,11 @@ aiohttp>=3.8.5
 google-api-python-client>=2.99.0
 google-auth-httplib2>=0.1.1
 google-auth-oauthlib>=1.1.0
+PyMuPDF>=1.22.5  # PDF extraction
+python-docx>=0.8.11  # DOCX extraction
+python-pptx>=0.6.21  # PPTX extraction
+pandas>=2.0.3  # XLSX extraction
+openpyxl>=3.1.2  # XLSX support
 
 # Process management for MCP integration
 psutil>=5.9.5

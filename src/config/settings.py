@@ -43,11 +43,14 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_DIRECTORY: str = os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     
-    # Google Drive - Legacy direct integration
+    # Google Drive Integration
+    GOOGLE_DRIVE_ENABLED: bool = os.getenv("GOOGLE_DRIVE_ENABLED", "false").lower() in ("true", "1", "t")
     GOOGLE_CREDENTIALS_PATH: Optional[str] = os.getenv("GOOGLE_CREDENTIALS_PATH")
     GOOGLE_TOKEN_PATH: Optional[str] = os.getenv("GOOGLE_TOKEN_PATH")
+    GOOGLE_DRIVE_SYNC_FILE: str = os.getenv("GOOGLE_DRIVE_SYNC_FILE", "gdrive_last_sync.json")
+    GOOGLE_DRIVE_MAX_FILES: int = int(os.getenv("GOOGLE_DRIVE_MAX_FILES", "100"))
     
-    # MCP Google Drive Integration
+    # MCP Google Drive Integration (legacy)
     MCP_GDRIVE_ENABLED: bool = os.getenv("MCP_GDRIVE_ENABLED", "false").lower() in ("true", "1", "t")
     MCP_CONFIG_PATH: Optional[str] = os.getenv("MCP_CONFIG_PATH")
     

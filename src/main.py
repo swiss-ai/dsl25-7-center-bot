@@ -13,7 +13,8 @@ from db.init_db import init_db, create_test_data
 from db.vector_db import VectorDB
 from middleware.rate_limit import RateLimiter
 from services.knowledge.document_processor import DocumentProcessor
-from services.knowledge.datasources.gdrive import GoogleDriveMCP
+from services.knowledge.datasources import GoogleDriveManager, GoogleDriveMCP
+from services.slack.mcp_bot import initialize_mcp_client, start_socket_mode
 
 # Configure logging
 logging.basicConfig(
@@ -50,11 +51,13 @@ app.add_middleware(
 # Initialize global services
 vector_db = None
 document_processor = None
-gdrive_mcp = None
+gdrive_manager = None
+gdrive_mcp = None  # Legacy Google Drive integration
 web_content_manager = None
 web_content_sync_service = None
 firecrawl_manager = None
 notion_manager = None
+mcp_slack_client = None  # New MCP Slack client
 
 # Include routers
 app.include_router(slack_router, prefix="/api/slack", tags=["slack"])
@@ -68,11 +71,13 @@ async def health_check():
 @app.get("/status")
 async def status():
     """Return the status of various components."""
-    global vector_db, gdrive_mcp, web_content_manager, web_content_sync_service, firecrawl_manager, notion_manager
+    global vector_db, gdrive_manager, gdrive_mcp, web_content_manager, web_content_sync_service, firecrawl_manager, notion_manager, mcp_slack_client
     
-    # Check if MCP Google Drive server is running
+    # Check Google Drive status
     gdrive_status = "not_initialized"
-    if gdrive_mcp:
+    if gdrive_manager and hasattr(gdrive_manager, "service") and gdrive_manager.service:
+        gdrive_status = "operational"
+    elif gdrive_mcp:
         if hasattr(gdrive_mcp, "service") and gdrive_mcp.service:  # Legacy integration
             gdrive_status = "operational"
         elif hasattr(gdrive_mcp, "_is_server_running"):  # MCP integration
@@ -131,6 +136,26 @@ async def status():
             "pages_configured": len(notion_manager.configured_pages) if notion_manager.configured_pages else 0
         }
     
+    # Check MCP Slack bot status
+    mcp_slack_status = "not_initialized"
+    if mcp_slack_client:
+        mcp_slack_status = "operational" if mcp_slack_client.session is not None else "server_not_running"
+    
+    # Determine Google Drive type
+    if settings.GOOGLE_DRIVE_ENABLED:
+        gdrive_type = "new"
+    elif settings.MCP_GDRIVE_ENABLED:
+        gdrive_type = "mcp"
+    else:
+        gdrive_type = "legacy"
+    
+    # Determine MCP availability
+    try:
+        import mcp
+        MCP_AVAILABLE = True
+    except ImportError:
+        MCP_AVAILABLE = False
+    
     status_info = {
         "status": "operational",
         "components": {
@@ -138,13 +163,19 @@ async def status():
             "vector_db": "operational" if vector_db else "not_initialized",
             "rate_limiter": "operational" if settings.RATE_LIMIT_ENABLED else "disabled",
             "google_drive": gdrive_status,
-            "google_drive_type": "mcp" if settings.MCP_GDRIVE_ENABLED else "legacy",
+            "google_drive_type": gdrive_type,
             "web_content": web_content_status,
             "web_content_sync": web_sync_status,
             "firecrawl": firecrawl_status,
-            "notion": notion_status
+            "notion": notion_status,
+            "mcp_slack_bot": mcp_slack_status
         },
         "document_count": vector_db.count() if vector_db else 0,
+        "google_drive": {
+            "enabled": settings.GOOGLE_DRIVE_ENABLED,
+            "credentials_configured": bool(settings.GOOGLE_CREDENTIALS_PATH and settings.GOOGLE_TOKEN_PATH),
+            "max_files_per_sync": settings.GOOGLE_DRIVE_MAX_FILES
+        },
         "web_content": {
             "enabled": settings.WEB_CONTENT_ENABLED,
             "last_sync": last_sync,
@@ -159,6 +190,12 @@ async def status():
             "enabled": settings.NOTION_ENABLED,
             "api_key_configured": bool(settings.NOTION_API_KEY),
             **notion_info
+        },
+        "mcp_slack_bot": {
+            "enabled": os.getenv("SLACK_APP_TOKEN") is not None,
+            "mcp_available": MCP_AVAILABLE,
+            "app_token_configured": os.getenv("SLACK_APP_TOKEN") is not None,
+            "bot_token_configured": os.getenv("SLACK_BOT_TOKEN") is not None
         }
     }
     
@@ -173,6 +210,11 @@ def get_gdrive_mcp():
     """Dependency to get the Google Drive MCP instance."""
     global gdrive_mcp
     return gdrive_mcp
+
+def get_gdrive_manager():
+    """Dependency to get the Google Drive Manager instance."""
+    global gdrive_manager
+    return gdrive_manager
 
 def get_web_content_manager():
     """Dependency to get the Web Content Manager instance."""
@@ -194,6 +236,11 @@ def get_notion_manager():
     global notion_manager
     return notion_manager
 
+def get_mcp_slack_client():
+    """Dependency to get the MCP Slack client."""
+    global mcp_slack_client
+    return mcp_slack_client
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
@@ -206,7 +253,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     """Initialize components on application startup."""
-    global vector_db, document_processor, gdrive_mcp, firecrawl_manager, notion_manager
+    global vector_db, document_processor, gdrive_manager, gdrive_mcp, firecrawl_manager, notion_manager, mcp_slack_client
     
     logger.info("Initializing database...")
     init_db()
@@ -222,11 +269,46 @@ async def startup_event():
     # Initialize document processor
     document_processor = DocumentProcessor(vector_db=vector_db)
     
-    # Initialize Google Drive integration
+    # Initialize new Google Drive integration
+    if settings.GOOGLE_DRIVE_ENABLED and settings.GOOGLE_CREDENTIALS_PATH and settings.GOOGLE_TOKEN_PATH:
+        logger.info("Initializing Google Drive integration...")
+        
+        try:
+            from services.knowledge.datasources.gdrive import GoogleDriveManager
+            
+            gdrive_manager = GoogleDriveManager(
+                document_processor=document_processor,
+                vector_db=vector_db,
+                credentials_path=settings.GOOGLE_CREDENTIALS_PATH,
+                token_path=settings.GOOGLE_TOKEN_PATH,
+                sync_file=settings.GOOGLE_DRIVE_SYNC_FILE
+            )
+            
+            logger.info("Google Drive integration initialized successfully")
+            
+            # Trigger an initial sync in the background
+            async def initial_sync():
+                try:
+                    await gdrive_manager.sync_recent_files(max_files=settings.GOOGLE_DRIVE_MAX_FILES)
+                except Exception as e:
+                    logger.error(f"Error during initial Google Drive sync: {e}")
+            
+            asyncio.create_task(initial_sync())
+            logger.info(f"Started initial Google Drive sync (max files: {settings.GOOGLE_DRIVE_MAX_FILES})")
+            
+        except Exception as e:
+            logger.error(f"Error initializing Google Drive integration: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            gdrive_manager = None
+    else:
+        logger.info("Google Drive integration disabled or credentials not configured")
+        gdrive_manager = None
+    
+    # Initialize legacy Google Drive integration (MCP)
     gdrive_enabled = False
     gdrive_mcp = None
     
-    # Google Drive functionality commented out
+    # Legacy MCP Google Drive functionality commented out for now
     """
     if settings.MCP_GDRIVE_ENABLED and settings.MCP_CONFIG_PATH:
         logger.info("Initializing MCP Google Drive integration...")
@@ -278,18 +360,9 @@ async def startup_event():
             gdrive_mcp = None
             
     # Legacy direct Google Drive integration
-    elif settings.GOOGLE_CREDENTIALS_PATH and settings.GOOGLE_TOKEN_PATH:
-        logger.info("Initializing Legacy Google Drive integration...")
-        try:
-            gdrive_mcp = GoogleDriveMCP(
-                credentials_path=settings.GOOGLE_CREDENTIALS_PATH,
-                token_path=settings.GOOGLE_TOKEN_PATH,
-                document_processor=document_processor
-            )
-            logger.info("Legacy Google Drive integration initialized successfully")
-        except Exception as e:
-            logger.error(f"Error initializing Legacy Google Drive integration: {e}")
-            gdrive_mcp = None
+    elif settings.GOOGLE_CREDENTIALS_PATH and settings.GOOGLE_TOKEN_PATH and not settings.GOOGLE_DRIVE_ENABLED:
+        logger.info("Legacy Google Drive integration is now deprecated. Please use the new integration by setting GOOGLE_DRIVE_ENABLED=true.")
+        gdrive_mcp = None
     """
     
     # Initialize Web Content Manager for web fetching
@@ -448,6 +521,59 @@ async def startup_event():
     else:
         logger.info("Notion integration disabled")
         notion_manager = None
+    
+    # Initialize MCP Slack client and Socket Mode
+    try:
+        # Check if MCP is available
+        try:
+            import mcp
+            MCP_AVAILABLE = True
+        except ImportError:
+            logger.warning("MCP library not installed. Install with 'pip install mcp' to use the MCP Slack bot")
+            MCP_AVAILABLE = False
+        
+        # Check if Socket Mode is enabled (requires SLACK_APP_TOKEN)
+        SOCKET_MODE_ENABLED = os.getenv("SLACK_APP_TOKEN") is not None
+        
+        if MCP_AVAILABLE and SOCKET_MODE_ENABLED:
+            logger.info("Initializing MCP Slack client...")
+            
+            # Start the MCP Slack client in a background task
+            async def init_mcp_slack():
+                try:
+                    global mcp_slack_client
+                    mcp_slack_client = await initialize_mcp_client(
+                        document_processor=document_processor,
+                        gdrive_manager=gdrive_manager,
+                        web_content_manager=web_content_manager
+                    )
+                    
+                    if mcp_slack_client:
+                        logger.info("MCP Slack client initialized successfully")
+                        
+                        # Start Socket Mode in the background
+                        socket_mode_started = await start_socket_mode()
+                        if socket_mode_started:
+                            logger.info("Socket Mode started successfully")
+                        else:
+                            logger.error("Failed to start Socket Mode")
+                    else:
+                        logger.error("Failed to initialize MCP Slack client")
+                        
+                except Exception as e:
+                    logger.error(f"Error initializing MCP Slack client: {e}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+            
+            # Start the initialization in a background task
+            asyncio.create_task(init_mcp_slack())
+        else:
+            if not MCP_AVAILABLE:
+                logger.info("MCP Slack bot disabled due to missing MCP library")
+            if not SOCKET_MODE_ENABLED:
+                logger.info("Socket Mode disabled due to missing SLACK_APP_TOKEN environment variable")
+    except Exception as e:
+        logger.error(f"Error setting up MCP Slack integration: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
     
     # Include knowledge routes after document_processor is initialized
     from api.knowledge_routes import router as knowledge_router
