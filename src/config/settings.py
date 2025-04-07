@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # Firecrawl Integration
     FIRECRAWL_ENABLED: bool = os.getenv("FIRECRAWL_ENABLED", "false").lower() in ("true", "1", "t")
     FIRECRAWL_CONFIG_PATH: str = os.getenv("FIRECRAWL_CONFIG_PATH", "crawl_config.yaml")
+    
+    # Notion Integration
+    NOTION_ENABLED: bool = os.getenv("NOTION_ENABLED", "false").lower() in ("true", "1", "t")
+    NOTION_API_KEY: str = os.getenv("NOTION_API_KEY", "")
+    NOTION_PAGES: str = os.getenv("NOTION_PAGES", "")  # Comma-separated list of page IDs
 
 settings = Settings()
 

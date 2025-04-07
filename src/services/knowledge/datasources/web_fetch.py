@@ -13,6 +13,23 @@ from services.knowledge.document_processor import DocumentProcessor
 
 logger = logging.getLogger(__name__)
 
+class WebFetchManager:
+    """
+    Web content fetching and processing.
+    """
+    
+    def __init__(self, document_processor: Optional[DocumentProcessor] = None):
+        """
+        Initialize the web fetcher.
+        
+        Args:
+            document_processor: Document processor for storing content
+        """
+        self.document_processor = document_processor
+        
+    # Implement the WebFetchManager methods - can be added later
+    # For now, this is a placeholder to fix the import error
+
 class WebFetchMCP:
     """
     Web content fetching and processing for MCP integration.

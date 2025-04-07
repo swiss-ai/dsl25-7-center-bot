@@ -1,0 +1,11 @@
+tunnel: aicenter-bot
+credentials-file: ~/.cloudflared/cert.pem
+
+# Uncomment the following two lines for persistent named tunnels
+# tunnel-token: your-tunnel-token
+# no-autoupdate: true
+
+ingress:
+  - hostname: bot.example.com
+    service: http://localhost:8000
+  - service: http_status:404

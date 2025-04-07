@@ -16,6 +16,22 @@ import platform
 
 logger = logging.getLogger(__name__)
 
+# Add a placeholder class to fix import errors
+class MCPGDriveManager:
+    """
+    MCP Google Drive content management for the vector database.
+    This is a placeholder to fix import errors.
+    """
+    
+    def __init__(self, document_processor=None, vector_db=None):
+        self.document_processor = document_processor
+        self.vector_db = vector_db
+        
+    async def sync_all_documents(self):
+        """Placeholder for syncing all Google Drive documents"""
+        logger.warning("MCPGDriveManager.sync_all_documents: This is a placeholder method")
+        return {"status": "not_implemented"}
+
 class MCPGoogleDrive:
     """Integration with MCP Google Drive server."""
     

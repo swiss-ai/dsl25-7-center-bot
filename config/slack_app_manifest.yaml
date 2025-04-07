@@ -1,0 +1,39 @@
+display_information:
+  name: AI Center Bot
+  description: An AI assistant that integrates with various data sources using MCP protocol
+  background_color: "#4A154B"
+
+features:
+  bot_user:
+    display_name: AI Center Bot
+    always_online: true
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - chat:write.scheduled
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+
+settings:
+  event_subscriptions:
+    request_url: https://your-app-domain.com/api/slack/events
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: https://your-app-domain.com/api/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

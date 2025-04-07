@@ -1,0 +1,11 @@
+# Web Content URLs for AI Center Bot
+# Add one URL per line
+# Lines starting with # are comments and will be ignored
+# 
+# Format:
+# https://example.com
+# https://another-site.org/specific-page
+#
+# Examples of websites that allow crawling:
+https://ai.ethz.ch/
+https://ethz.ch/en/news-and-events/events.html?q=ETH%20AI%20CENTER

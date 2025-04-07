@@ -54,6 +54,7 @@ gdrive_mcp = None
 web_content_manager = None
 web_content_sync_service = None
 firecrawl_manager = None
+notion_manager = None
 
 # Include routers
 app.include_router(slack_router, prefix="/api/slack", tags=["slack"])
@@ -67,7 +68,7 @@ async def health_check():
 @app.get("/status")
 async def status():
     """Return the status of various components."""
-    global vector_db, gdrive_mcp, web_content_manager, web_content_sync_service, firecrawl_manager
+    global vector_db, gdrive_mcp, web_content_manager, web_content_sync_service, firecrawl_manager, notion_manager
     
     # Check if MCP Google Drive server is running
     gdrive_status = "not_initialized"
@@ -120,6 +121,16 @@ async def status():
             logger.error(f"Error getting firecrawl status: {e}")
             firecrawl_status = f"error: {str(e)}"
     
+    # Check notion status
+    notion_status = "not_initialized"
+    notion_info = {}
+    if notion_manager:
+        notion_status = "operational" if settings.NOTION_ENABLED and settings.NOTION_API_KEY else "not_configured"
+        notion_info = {
+            "enabled": settings.NOTION_ENABLED,
+            "pages_configured": len(notion_manager.configured_pages) if notion_manager.configured_pages else 0
+        }
+    
     status_info = {
         "status": "operational",
         "components": {
@@ -130,7 +141,8 @@ async def status():
             "google_drive_type": "mcp" if settings.MCP_GDRIVE_ENABLED else "legacy",
             "web_content": web_content_status,
             "web_content_sync": web_sync_status,
-            "firecrawl": firecrawl_status
+            "firecrawl": firecrawl_status,
+            "notion": notion_status
         },
         "document_count": vector_db.count() if vector_db else 0,
         "web_content": {
@@ -142,6 +154,11 @@ async def status():
             "enabled": settings.FIRECRAWL_ENABLED,
             "available": "yes" if 'FIRECRAWL_AVAILABLE' in globals() and FIRECRAWL_AVAILABLE else "no",
             **firecrawl_info
+        },
+        "notion": {
+            "enabled": settings.NOTION_ENABLED,
+            "api_key_configured": bool(settings.NOTION_API_KEY),
+            **notion_info
         }
     }
     
@@ -172,6 +189,11 @@ def get_firecrawl_manager():
     global firecrawl_manager
     return firecrawl_manager
 
+def get_notion_manager():
+    """Dependency to get the Notion Manager instance."""
+    global notion_manager
+    return notion_manager
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
@@ -184,7 +206,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     """Initialize components on application startup."""
-    global vector_db, document_processor, gdrive_mcp, firecrawl_manager
+    global vector_db, document_processor, gdrive_mcp, firecrawl_manager, notion_manager
     
     logger.info("Initializing database...")
     init_db()
@@ -397,6 +419,35 @@ async def startup_event():
     else:
         logger.info("Firecrawl integration disabled")
         firecrawl_manager = None
+    
+    # Initialize Notion integration if enabled
+    if settings.NOTION_ENABLED:
+        try:
+            # Initialize Notion Manager
+            from services.knowledge.datasources.notion_manager import NotionManager
+            
+            logger.info("Initializing Notion integration...")
+            notion_manager = NotionManager(
+                document_processor=document_processor,
+                vector_db=vector_db
+            )
+            
+            # Check if API key is configured
+            if not settings.NOTION_API_KEY:
+                logger.warning("Notion API key not configured. Notion integration will not function properly.")
+            elif not settings.NOTION_PAGES:
+                logger.warning("No Notion pages configured. Add page IDs to NOTION_PAGES environment variable.")
+            else:
+                logger.info(f"Notion integration initialized with {len(notion_manager.configured_pages)} configured pages")
+                
+        except Exception as e:
+            logger.error(f"Error initializing Notion integration: {e}")
+            # Log the full traceback for better debugging
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            notion_manager = None
+    else:
+        logger.info("Notion integration disabled")
+        notion_manager = None
     
     # Include knowledge routes after document_processor is initialized
     from api.knowledge_routes import router as knowledge_router

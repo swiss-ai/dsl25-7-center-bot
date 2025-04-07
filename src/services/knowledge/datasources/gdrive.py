@@ -15,6 +15,17 @@ import datetime
 
 from services.knowledge.document_processor import DocumentProcessor
 
+# Add a placeholder GoogleDriveManager class to fix import errors
+class GoogleDriveManager:
+    """
+    Google Drive content management for the vector database.
+    This is a placeholder to fix import errors.
+    """
+    
+    def __init__(self, document_processor=None, vector_db=None):
+        self.document_processor = document_processor
+        self.vector_db = vector_db
+
 logger = logging.getLogger(__name__)
 
 # Define the scopes

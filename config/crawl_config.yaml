@@ -1,0 +1,52 @@
+# Firecrawl Configuration
+# Add websites to be crawled along with their configuration
+
+# Global configuration - applied to all sites unless overridden
+global:
+  # Crawl interval in hours (how often to re-crawl)
+  crawl_interval: 24  # Daily
+  
+  # Max pages to crawl per site
+  max_pages: 100
+  
+  # Crawl subdomain pages? 
+  include_subdomains: true
+  
+  # Max crawl depth (0 means only the specified page)
+  max_depth: 5
+  
+  # Respect robots.txt
+  respect_robots_txt: false
+  
+  # Politeness delay between requests in seconds
+  delay: 1.0
+  
+  # Maximum concurrent requests per domain
+  concurrency: 5
+  
+  # Crawl timeout in seconds
+  timeout: 30
+
+# Sites to crawl
+sites:
+  - url: https://ai.ethz.ch/
+    # Override any global settings if needed
+    crawl_interval: 48  # Every 2 days
+    include_subdomains: true
+    max_depth: 5
+    
+
+# URLs to exclude (will not be crawled even if linked from allowed pages)
+# You can use wildcards (*) in exclusion patterns
+exclude_patterns:
+  - "*login*"
+  - "*signin*"
+  - "*download*"
+  - "*.pdf"
+  - "*.zip"
+  - "*.exe"
+  - "*.dmg"
+  - "*private*"
+  - "*account*"
+  - "*cart*"
+  - "*checkout*"

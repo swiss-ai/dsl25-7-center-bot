@@ -245,3 +245,63 @@ async def get_firecrawl_status():
             status_code=500,
             detail=f"Error getting Firecrawl status: {str(e)}"
         )
+
+@router.post("/notion/sync")
+async def sync_notion(background_tasks: BackgroundTasks):
+    """
+    Trigger a manual synchronization of Notion pages.
+    The sync process runs in the background.
+    """
+    # Import here to avoid circular imports
+    from main import notion_manager
+    
+    if not notion_manager:
+        raise HTTPException(status_code=503, detail="Notion manager not initialized")
+    
+    # Run sync in the background
+    background_tasks.add_task(notion_manager.sync_all_pages)
+    
+    return {
+        "status": "sync_started",
+        "message": "Notion sync started in background"
+    }
+
+@router.post("/notion/page/{page_id}")
+async def sync_notion_page(page_id: str):
+    """
+    Sync a specific Notion page.
+    """
+    # Import here to avoid circular imports
+    from main import notion_manager
+    
+    if not notion_manager:
+        raise HTTPException(status_code=503, detail="Notion manager not initialized")
+    
+    try:
+        result = await notion_manager.sync_page(page_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error syncing Notion page {page_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error syncing Notion page: {str(e)}"
+        )
+
+@router.get("/notion/status")
+async def get_notion_status():
+    """
+    Get the status of the Notion integration.
+    """
+    # Import here to avoid circular imports
+    from main import notion_manager
+    from config.settings import settings
+    
+    status = {
+        "enabled": settings.NOTION_ENABLED,
+        "configured_pages": []
+    }
+    
+    if notion_manager:
+        status["configured_pages"] = notion_manager.configured_pages
+    
+    return status
