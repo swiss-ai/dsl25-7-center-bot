@@ -77,7 +77,6 @@ class MCPClient:
         } for tool in response.tools]
 
         final_text = []
-        print("GROS RAGEUX")
 
         while True:
             # Claude call with context + tools
@@ -100,7 +99,7 @@ class MCPClient:
                     tool_used = True
                     tool_name = content.name
                     tool_args = content.input
-
+                    
                     print(f"🛠 TOOL USE DETECTED: {tool_name}")
                     print(f"📦 Tool args: {tool_args}")
 
