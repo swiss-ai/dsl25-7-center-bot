@@ -8,6 +8,9 @@ credentials/*.json
 credentials\ copy/
 **/credentials\ copy/
 **/credentials copy/
+config/credentials/*.json
+config/credentials/*.pickle
+gdrive_scraping/credentials.json
 
 # Database files
 *.db
