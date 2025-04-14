@@ -63,14 +63,25 @@ class MCPSlackClient:
         # First, create the server.py file in a temporary location
         script_path = await self._create_mcp_server()
         
+        # Prepare environment variables
+        env = {
+            "SLACK_BOT_TOKEN": SLACK_BOT_TOKEN,
+            "PYTHONPATH": os.getcwd()  # Add current directory to Python path
+        }
+        
+        # Add knowledge source environment variables if available
+        if os.getenv("GOOGLE_CREDENTIALS_PATH"):
+            env["GOOGLE_CREDENTIALS_PATH"] = os.getenv("GOOGLE_CREDENTIALS_PATH")
+        if os.getenv("GOOGLE_TOKEN_PATH"):
+            env["GOOGLE_TOKEN_PATH"] = os.getenv("GOOGLE_TOKEN_PATH")
+        if os.getenv("GOOGLE_DRIVE_SYNC_FILE"):
+            env["GOOGLE_DRIVE_SYNC_FILE"] = os.getenv("GOOGLE_DRIVE_SYNC_FILE")
+        
         # Connect to the server
         server_params = StdioServerParameters(
             command="python",
             args=[script_path],
-            env={
-                "SLACK_BOT_TOKEN": SLACK_BOT_TOKEN,
-                "PYTHONPATH": os.getcwd()  # Add current directory to Python path
-            }
+            env=env
         )
         
         logger.info("Connecting to MCP server...")

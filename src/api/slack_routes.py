@@ -25,6 +25,9 @@ class SlackChallenge(BaseModel):
     token: str
     type: str
 
+# Simple cache to prevent duplicate processing of the same event
+processed_events = {}
+
 @router.post("/events")
 async def slack_events(request: Request):
     """
@@ -39,6 +42,25 @@ async def slack_events(request: Request):
     # Handle URL verification challenge
     if "challenge" in body:
         return {"challenge": body["challenge"]}
+    
+    # Extract event ID for deduplication
+    event = body.get("event", {})
+    event_id = event.get("event_ts") or event.get("ts")
+    
+    # Skip if we've already processed this event
+    if event_id and event_id in processed_events:
+        logger.info(f"Skipping already processed event: {event_id}")
+        return JSONResponse(content={"ok": True})
+    
+    # Mark this event as processed
+    if event_id:
+        processed_events[event_id] = True
+        
+        # Cleanup old events from the cache (keep last 100 events)
+        if len(processed_events) > 100:
+            oldest_keys = sorted(processed_events.keys())[:len(processed_events) - 100]
+            for key in oldest_keys:
+                processed_events.pop(key, None)
     
     # Process Slack event
     await handle_slack_event(body)
@@ -941,6 +963,24 @@ async def context_aware_message(
     
     body = await request.json()
     event = body.get("event", {})
+    
+    # Extract event ID for deduplication
+    event_id = event.get("event_ts") or event.get("ts")
+    
+    # Skip if we've already processed this event
+    if event_id and event_id in processed_events:
+        logger.info(f"Skipping already processed event in context-aware: {event_id}")
+        return JSONResponse(content={"ok": True})
+    
+    # Mark this event as processed
+    if event_id:
+        processed_events[event_id] = True
+        
+        # Cleanup old events from the cache (keep last 100 events)
+        if len(processed_events) > 100:
+            oldest_keys = sorted(processed_events.keys())[:len(processed_events) - 100]
+            for key in oldest_keys:
+                processed_events.pop(key, None)
     
     # Handle the message with context
     # We'll pass the document_processor and gdrive_mcp explicitly

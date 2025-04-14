@@ -7,7 +7,7 @@ global:
   crawl_interval: 24  # Daily
   
   # Max pages to crawl per site
-  max_pages: 100
+  max_pages: 10
   
   # Crawl subdomain pages? 
   include_subdomains: true
@@ -33,7 +33,7 @@ sites:
     # Override any global settings if needed
     crawl_interval: 48  # Every 2 days
     include_subdomains: true
-    max_depth: 5
+    max_depth: 2
     
 
 # URLs to exclude (will not be crawled even if linked from allowed pages)

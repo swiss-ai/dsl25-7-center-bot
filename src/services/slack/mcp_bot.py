@@ -42,10 +42,31 @@ async def initialize_mcp_client(document_processor=None, gdrive_manager=None, we
     logger.info("MCP Slack client initialized and connected to server")
     return mcp_client
 
+# This cache will store recently processed message IDs to avoid duplicates
+processed_messages = {}
+
 @app.event("app_mention")
 async def handle_app_mention(event, say, client):
     """Handle mentions of the bot in channels."""
-    global mcp_client
+    global mcp_client, processed_messages
+    
+    # Extract message ID for deduplication
+    message_id = event.get("ts")
+    
+    # Skip if we've already processed this message
+    if message_id in processed_messages:
+        logger.info(f"Skipping already processed message: {message_id}")
+        return
+    
+    # Mark this message as processed
+    processed_messages[message_id] = True
+    
+    # Cleanup old messages from the cache (keep last 100 messages)
+    if len(processed_messages) > 100:
+        oldest_keys = sorted(processed_messages.keys())[:len(processed_messages) - 100]
+        for key in oldest_keys:
+            processed_messages.pop(key, None)
+    
     if not mcp_client:
         await say("Sorry, the bot is still initializing. Please try again in a few moments.")
         return
@@ -117,7 +138,15 @@ async def handle_app_mention(event, say, client):
         1. You MUST NEVER use information outside of the provided knowledge sources
         2. If the information is not in the knowledge base, Google Drive, or fetched web content, you MUST say that you don't have that information
         3. DO NOT use your general knowledge or training data to answer questions - ONLY use the search and file access tools
-        4. Always cite the source of your information (file name, search result, etc.)
+        4. ALWAYS cite the source of your information using the metadata provided with each result
+
+        SOURCE CITATION FORMAT:
+        When you get information from a tool, you MUST cite the source properly using the source metadata provided:
+        - For knowledge base results: [Title, Last Updated: date]
+        - For Google Drive files: [Google Drive: Title, Modified: date]
+        - For web content: [Web: Title, URL]
+        
+        Always include source citation immediately after presenting information from that source.
 
         Use these knowledge base tools to find information:
         - search: Search for information in the knowledge base
@@ -150,11 +179,28 @@ async def handle_app_mention(event, say, client):
 @app.event("message")
 async def handle_direct_message(event, say, client):
     """Handle direct messages to the bot."""
-    global mcp_client
+    global mcp_client, processed_messages
     
     # Skip bot messages and non-direct messages
     if "subtype" in event or event.get("channel_type") != "im":
         return
+    
+    # Extract message ID for deduplication
+    message_id = event.get("ts")
+    
+    # Skip if we've already processed this message
+    if message_id in processed_messages:
+        logger.info(f"Skipping already processed message: {message_id}")
+        return
+    
+    # Mark this message as processed
+    processed_messages[message_id] = True
+    
+    # Cleanup old messages from the cache (keep last 100 messages)
+    if len(processed_messages) > 100:
+        oldest_keys = sorted(processed_messages.keys())[:len(processed_messages) - 100]
+        for key in oldest_keys:
+            processed_messages.pop(key, None)
         
     if not mcp_client:
         await say("Sorry, the bot is still initializing. Please try again in a few moments.")
@@ -222,7 +268,15 @@ async def handle_direct_message(event, say, client):
         1. You MUST NEVER use information outside of the provided knowledge sources
         2. If the information is not in the knowledge base, Google Drive, or fetched web content, you MUST say that you don't have that information
         3. DO NOT use your general knowledge or training data to answer questions - ONLY use the search and file access tools
-        4. Always cite the source of your information (file name, search result, etc.)
+        4. ALWAYS cite the source of your information using the metadata provided with each result
+
+        SOURCE CITATION FORMAT:
+        When you get information from a tool, you MUST cite the source properly using the source metadata provided:
+        - For knowledge base results: [Title, Last Updated: date]
+        - For Google Drive files: [Google Drive: Title, Modified: date]
+        - For web content: [Web: Title, URL]
+        
+        Always include source citation immediately after presenting information from that source.
 
         Use these knowledge base tools to find information:
         - search: Search for information in the knowledge base

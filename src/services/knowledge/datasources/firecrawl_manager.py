@@ -13,11 +13,22 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 # Import firecrawl when available, or provide graceful fallback
 try:
-    from firecrawl import Crawler
-    FIRECRAWL_AVAILABLE = True
+    # First try the new API-based Firecrawl client
+    from firecrawl import FirecrawlApp
+    FIRECRAWL_API_AVAILABLE = True
+    FIRECRAWL_CLASS = FirecrawlApp
+    logging.info("Using Firecrawl API client (new version)")
 except ImportError:
-    FIRECRAWL_AVAILABLE = False
-    logging.warning("Firecrawl package not available. Advanced crawling disabled.")
+    try:
+        # Then try the older Crawler-based implementation
+        from firecrawl import Crawler
+        FIRECRAWL_API_AVAILABLE = False
+        FIRECRAWL_CLASS = Crawler
+        logging.info("Using Firecrawl Crawler (legacy version)")
+    except ImportError:
+        FIRECRAWL_API_AVAILABLE = False
+        FIRECRAWL_CLASS = None
+        logging.warning("Firecrawl package not available. Advanced crawling disabled.")
 
 from services.knowledge.document_processor import DocumentProcessor
 from db.vector_db import VectorDB
@@ -54,8 +65,14 @@ class FirecrawlManager:
         self.last_crawl_times: Dict[str, datetime] = {}
         
         # Check if Firecrawl is available
-        if not FIRECRAWL_AVAILABLE:
+        if FIRECRAWL_CLASS is None:
             logger.error("Firecrawl package not installed. Run 'pip install firecrawl' to enable advanced crawling.")
+        
+        # Get API key if needed
+        self.api_key = os.getenv("FIRECRAWL_API_KEY")
+        if FIRECRAWL_API_AVAILABLE and not self.api_key:
+            logger.warning("FIRECRAWL_API_KEY environment variable not set. Will attempt to use default demo key.")
+            self.api_key = "fc-434b6c04d3d443dfa1b25ff5182ab038"  # Demo key with limited usage
         
         # Load configuration
         self.config = self._load_config()
@@ -120,7 +137,7 @@ class FirecrawlManager:
     
     async def start_crawl_service(self):
         """Start the crawl scheduling service."""
-        if not FIRECRAWL_AVAILABLE:
+        if FIRECRAWL_CLASS is None:
             logger.error("Cannot start crawl service: Firecrawl not installed")
             return False
         
@@ -222,7 +239,7 @@ class FirecrawlManager:
         Returns:
             Summary of crawl results
         """
-        if not FIRECRAWL_AVAILABLE:
+        if FIRECRAWL_CLASS is None:
             return {"status": "error", "message": "Firecrawl not available"}
         
         if not sites:
@@ -319,62 +336,119 @@ class FirecrawlManager:
         logger.info(f"Starting crawl for {site_url}")
         
         try:
-            # Configure crawler
-            crawler = Crawler(
-                start_url=site_url,
-                max_depth=site_config.get("max_depth", 3),
-                max_pages=site_config.get("max_pages", 100),
-                respect_robots_txt=site_config.get("respect_robots_txt", True),
-                follow_subdomains=site_config.get("include_subdomains", True),
-                delay=site_config.get("delay", 1.0),
-                concurrency=site_config.get("concurrency", 5),
-                timeout=site_config.get("timeout", 30)
-            )
-            
-            # Add exclusion patterns
-            exclude_patterns = self.config.get("exclude_patterns", [])
-            for pattern in exclude_patterns:
-                crawler.exclude_url_pattern(pattern)
-            
-            # Start crawling
-            pages = await crawler.run()
-            
-            # Process crawled pages
-            successful_pages = 0
-            failed_pages = 0
-            
-            # Use thread pool for processing to avoid blocking
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = []
+            # Handle based on available Firecrawl version
+            if FIRECRAWL_API_AVAILABLE:
+                # Use the API-based FirecrawlApp
+                app = FIRECRAWL_CLASS(api_key=self.api_key)
                 
-                for page in pages:
-                    if page.response and page.response.status_code == 200:
-                        # Process in thread pool
-                        future = executor.submit(
-                            self._process_page, 
-                            page.url, 
-                            page.response.text, 
-                            page.response.headers.get("Content-Type", "")
-                        )
-                        futures.append(future)
+                # Convert settings for API client
+                timeout_ms = site_config.get("timeout", 30) * 1000  # Convert to milliseconds
                 
-                # Wait for all processing to complete
-                for future in futures:
-                    result = future.result()
-                    if result.get("status") == "success":
-                        successful_pages += 1
+                # Prepare API parameters
+                params = {
+                    "timeout": timeout_ms,
+                    "followLinks": site_config.get("max_depth", 3) > 0,
+                    "maxDepth": min(site_config.get("max_depth", 3), 2),  # API has lower depth limits
+                    "maxPages": min(site_config.get("max_pages", 100), 50),  # API has lower page limits
+                    "headless": True
+                }
+                
+                # Start crawling
+                pages_processed = 0
+                pages_failed = 0
+                processed_urls = set()
+                
+                # First fetch the main URL
+                try:
+                    result = app.scrape_url(site_url, params=params)
+                    processed_urls.add(site_url)
+                    
+                    if isinstance(result, dict) and ("html" in result or "markdown" in result or "text" in result):
+                        # Process the page
+                        content = result.get("html", result.get("markdown", result.get("text", "")))
+                        metadata = result.get("metadata", {})
+                        content_type = "text/html" if "html" in result else "text/markdown"
+                        
+                        process_result = self._process_page(site_url, content, content_type)
+                        if process_result.get("status") == "success":
+                            pages_processed += 1
+                        else:
+                            pages_failed += 1
                     else:
-                        failed_pages += 1
-            
-            # Return summary
-            return {
-                "status": "success",
-                "url": site_url,
-                "pages_crawled": len(pages),
-                "pages_processed": successful_pages,
-                "pages_failed": failed_pages,
-                "timestamp": datetime.now().isoformat()
-            }
+                        logger.warning(f"Unexpected result format from {site_url}: {result.keys() if isinstance(result, dict) else type(result)}")
+                        pages_failed += 1
+                        
+                except Exception as page_error:
+                    logger.error(f"Error processing page {site_url}: {page_error}")
+                    pages_failed += 1
+                
+                # Return results
+                return {
+                    "status": "success",
+                    "url": site_url,
+                    "pages_crawled": 1,  # API version currently just does single pages
+                    "pages_processed": pages_processed,
+                    "pages_failed": pages_failed,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+            else:
+                # Use the crawler-based implementation
+                crawler = FIRECRAWL_CLASS(
+                    start_url=site_url,
+                    max_depth=site_config.get("max_depth", 3),
+                    max_pages=site_config.get("max_pages", 100),
+                    respect_robots_txt=site_config.get("respect_robots_txt", True),
+                    follow_subdomains=site_config.get("include_subdomains", True),
+                    delay=site_config.get("delay", 1.0),
+                    concurrency=site_config.get("concurrency", 5),
+                    timeout=site_config.get("timeout", 30)
+                )
+                
+                # Add exclusion patterns
+                exclude_patterns = self.config.get("exclude_patterns", [])
+                for pattern in exclude_patterns:
+                    crawler.exclude_url_pattern(pattern)
+                
+                # Start crawling
+                pages = await crawler.run()
+                
+                # Process crawled pages
+                successful_pages = 0
+                failed_pages = 0
+                
+                # Use thread pool for processing to avoid blocking
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = []
+                    
+                    for page in pages:
+                        if page.response and page.response.status_code == 200:
+                            # Process in thread pool
+                            future = executor.submit(
+                                self._process_page, 
+                                page.url, 
+                                page.response.text, 
+                                page.response.headers.get("Content-Type", "")
+                            )
+                            futures.append(future)
+                    
+                    # Wait for all processing to complete
+                    for future in futures:
+                        result = future.result()
+                        if result.get("status") == "success":
+                            successful_pages += 1
+                        else:
+                            failed_pages += 1
+                
+                # Return summary
+                return {
+                    "status": "success",
+                    "url": site_url,
+                    "pages_crawled": len(pages),
+                    "pages_processed": successful_pages,
+                    "pages_failed": failed_pages,
+                    "timestamp": datetime.now().isoformat()
+                }
             
         except Exception as e:
             logger.error(f"Error crawling {site_url}: {e}")
@@ -566,9 +640,14 @@ class FirecrawlManager:
         Returns:
             Status information
         """
+        firecrawl_status = "unavailable"
+        if FIRECRAWL_CLASS is not None:
+            firecrawl_status = "api" if FIRECRAWL_API_AVAILABLE else "crawler"
+            
         return {
             "is_running": self.is_running,
-            "firecrawl_available": FIRECRAWL_AVAILABLE,
+            "firecrawl_status": firecrawl_status,
+            "firecrawl_available": FIRECRAWL_CLASS is not None,
             "sites_configured": len(self.config.get("sites", [])),
             "sites_crawled": len(self.last_crawl_times),
             "current_crawls": list(self.current_crawls),
