@@ -22,7 +22,7 @@ try:
         from services.knowledge.datasources.gdrive import GoogleDriveManager
         from services.mcp.web_fetch import MCPWebFetch
         from db.vector_db import VectorDB
-        KNOWLEDGE_TOOLS_AVAILABLE = True
+        KNOWLEDGE_TOOLS_AVAILABLE = True #should be True
         logging.info("Using relative imports for knowledge tools")
     except ImportError:
         # Fall back to absolute imports (when run directly)
@@ -31,7 +31,7 @@ try:
         from src.services.knowledge.datasources.gdrive import GoogleDriveManager
         from src.services.mcp.web_fetch import MCPWebFetch
         from src.db.vector_db import VectorDB
-        KNOWLEDGE_TOOLS_AVAILABLE = True
+        KNOWLEDGE_TOOLS_AVAILABLE = True #should be True
         logging.info("Using absolute imports for knowledge tools")
 except ImportError as e:
     KNOWLEDGE_TOOLS_AVAILABLE = False
