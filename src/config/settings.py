@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     NOTION_API_KEY: str = os.getenv("NOTION_API_KEY", "")
     NOTION_PAGES: str = os.getenv("NOTION_PAGES", "")  # Comma-separated list of page IDs
 
+    # Email auto-responder Integration
+    MAIL_CREDS_PATH: str = os.getenv("GMAIL_CREDS_PATH")
+    GMAIL_TOKEN_PATH: str = os.getenv("GMAIL_TOKEN_PATH")
+    GMAIL_POLL_INTERVAL: int = int(os.getenv("GMAIL_POLL_INTERVAL", "10"))
+
 settings = Settings()
 
 # Validate critical settings

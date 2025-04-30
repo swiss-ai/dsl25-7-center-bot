@@ -52,3 +52,10 @@ python-dateutil>=2.8.2
 # PDF processing
 pypdf>=3.16.2
 markdown>=3.4.4
+
+# Email auto-responder
+google-api-python-client>=2.131.0
+google-auth>=2.29.0
+google-auth-oauthlib>=1.2.0
+talon>=1.4.4
+beautifulsoup4>=4.12.2
