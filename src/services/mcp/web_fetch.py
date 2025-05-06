@@ -8,6 +8,12 @@ from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 import bs4
 from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+import time
 
 from config.settings import settings
 
@@ -37,6 +43,7 @@ class WebFetcher:
             bool: Always returns True
         """
         return True
+    
     
     async def fetch_url(self, url: str, max_length: int = 100000, start_index: int = 0) -> Dict[str, Any]:
         """
@@ -101,6 +108,61 @@ class WebFetcher:
                 "error": str(e)
             }
     
+
+    async def fetch_publications(self, url: str) -> List[Dict[str, Any]]:
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')
+        driver = webdriver.Chrome(options=options)
+        publications = []
+        
+        try:
+            driver.get(url)
+            time.sleep(5)  # Initial load
+            
+            while True:
+                # Scrape current page
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                for pub in soup.find_all('div', class_="PublicationListItem__content"):
+                    title = pub.find('div', class_='pub_title').get_text(strip=True)
+                    authors = pub.find('div', class_='pub_authors').get_text(strip=True)
+                    abstract_div = pub.find_next_sibling('div', class_='PublicationListItem__abstract')
+                    abstract = abstract_div.find('p').get_text(strip=True) if abstract_div else "No abstract"
+                    publications.append({
+                        'title': title,
+                        'authors': authors,
+                        'abstract': abstract
+                    })
+                
+                # Try to click next page button
+                try:
+                    buttons = driver.find_elements(By.CSS_SELECTOR, ".EthPagination__button--next")
+                    next_button = buttons[0]
+                
+                    if not next_button.is_enabled():
+                        print("Next button is disabled. End of pagination.")
+                        break
+                    else:
+                        print("Icon-only button found, clicking...")
+                        driver.execute_script("arguments[0].click();", next_button)
+                        time.sleep(5)
+            
+                except:
+                    break  # No more pages or button not clickable
+            
+            print(f"Scraped {len(publications)} publications")
+            return publications
+        
+        except Exception as e:
+            logger.error(f"Error fetching URL {url}: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+        finally:
+            driver.quit()
+
+
     def _html_to_markdown(self, html: str, url: str) -> str:
         """
         Convert HTML to markdown-like text.

@@ -63,73 +63,116 @@ class WebContentSyncService:
             logger.error(f"Error reading URLs from file: {e}")
             return []
     
-    async def fetch_and_process_url(self, url: str) -> Dict[str, Any]:
+    async def fetch_and_process_url(self, url: str, dynamic_content: bool) -> Dict[str, Any]:
         """
         Fetch and process a single URL.
         
         Args:
             url: The URL to fetch
+            dynamic_content: Whether content is dynamic (JS loading HTML content)
             
         Returns:
             Result information
         """
+
         if not self.document_processor:
-            return {"status": "error", "url": url, "error": "Document processor not initialized"}
+                return {"status": "error", "url": url, "error": "Document processor not initialized"}
         
-        try:
-            # Fetch the content using MCP Web Fetch
-            fetch_result = await self.web_fetch.fetch_url(url)
-            
-            if fetch_result["status"] != "success":
-                return fetch_result
-            
-            content = fetch_result["content"]
-            
-            # Generate a document ID
-            import uuid
-            import re
-            
-            # Try to extract title from the content
-            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-            title = title_match.group(1) if title_match else "Web Page"
-            
-            doc_id = f"web_{uuid.uuid4()}"
-            
-            # Prepare metadata
-            metadata = {
-                "doc_id": doc_id,
-                "source": "web",
-                "url": url,
-                "title": title,
-                "author": "Web Content",
-                "created_at": datetime.now().isoformat(),
-                "synchronized_at": datetime.now().isoformat()
-            }
-            
-            # Process and store the document
-            chunk_ids = await self.document_processor.process_document(
-                content=content,
-                metadata=metadata,
-                chunk_size=500,
-                chunk_overlap=50
-            )
-            
-            return {
-                "status": "success",
-                "url": url,
-                "doc_id": doc_id,
-                "title": title,
-                "chunks": len(chunk_ids)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error processing URL {url}: {e}")
-            return {
-                "status": "error",
-                "url": url,
-                "error": str(e)
-            }
-    
+        if not dynamic_content:    
+            try:
+                # Fetch the content using MCP Web Fetch
+                fetch_result = await self.web_fetch.fetch_url(url)
+                
+                if fetch_result["status"] != "success":
+                    return fetch_result
+                
+                content = fetch_result["content"]
+                
+                # Generate a document ID
+                import uuid
+                import re
+                
+                # Try to extract title from the content
+                title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+                title = title_match.group(1) if title_match else "Web Page"
+                
+                doc_id = f"web_{uuid.uuid4()}"
+                
+                # Prepare metadata
+                metadata = {
+                    "doc_id": doc_id,
+                    "source": "web",
+                    "url": url,
+                    "title": title,
+                    "author": "Web Content",
+                    "created_at": datetime.now().isoformat(),
+                    "synchronized_at": datetime.now().isoformat()
+                }
+                
+                # Process and store the document
+                chunk_ids = await self.document_processor.process_document(
+                    content=content,
+                    metadata=metadata,
+                    chunk_size=500,
+                    chunk_overlap=50
+                )
+                
+                return {
+                    "status": "success",
+                    "url": url,
+                    "doc_id": doc_id,
+                    "title": title,
+                    "chunks": len(chunk_ids)
+                }
+                
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {e}")
+                return {
+                    "status": "error",
+                    "url": url,
+                    "error": str(e)
+                }
+        else:
+            try:
+                publications = self.web_fetch.fetch_publications(url)
+                res = []
+                for publication in publications:
+                    doc_id = f"web_{uuid.uuid4()}"
+                    metadata = {
+                        "doc_id": doc_id,
+                        "source": "web",
+                        "url": url,
+                        "title": publication['title'],
+                        "author": publication['authors'],
+                        "created_at": datetime.now().isoformat(),
+                        "synchronized_at": datetime.now().isoformat()
+                    }
+                
+                    chunk_ids = await self.document_processor.process_document(
+                        content=publication['abstract'],
+                        metadata=metadata,
+                        chunk_size=500,
+                        chunk_overlap=50
+                    )
+
+                    res.append((doc_id, chunk_ids))
+
+                # Not sure what to return (does not matter I think)
+                return {
+                    "status": "success",
+                    "url": url,
+                    "res": res
+                }
+
+
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {e}")
+                return {
+                    "status": "error",
+                    "url": url,
+                    "error": str(e)
+                }
+
     async def sync_all_urls(self) -> Dict[str, Any]:
         """
         Synchronize all URLs from the file.
@@ -162,7 +205,7 @@ class WebContentSyncService:
             }
         
         # Process each URL
-        tasks = [self.fetch_and_process_url(url) for url in urls]
+        tasks = [self.fetch_and_process_url(url, url == 'https://ai.ethz.ch/research/publications.html') for url in urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Process results
