@@ -4,7 +4,7 @@ import logging
 import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-
+import hashlib
 from config.settings import settings
 from services.mcp.web_fetch import MCPWebFetch
 from services.knowledge.document_processor import DocumentProcessor
@@ -93,7 +93,7 @@ class WebContentSyncService:
             title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
             title = title_match.group(1) if title_match else "Web Page"
             
-            doc_id = f"web_{uuid.uuid4()}"
+            doc_id =f"web_{hashlib.md5(url.encode()).hexdigest()}"
             
             # Prepare metadata
             metadata = {
@@ -104,6 +104,7 @@ class WebContentSyncService:
                 "author": "Web Content",
                 "created_at": datetime.now().isoformat(),
                 "synchronized_at": datetime.now().isoformat()
+
             }
             
             # Process and store the document

@@ -7,6 +7,7 @@ import re
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 from bs4 import BeautifulSoup
+import hashlib
 
 from config.settings import settings
 from services.knowledge.document_processor import DocumentProcessor

@@ -502,10 +502,12 @@ class FirecrawlManager:
             
             # Generate a document ID
             doc_id = f"web_{uuid.uuid4()}"
+            file_id = f"firecrawl::{url}"
             
             # Prepare metadata
             metadata = {
                 "doc_id": doc_id,
+                "file_id": file_id,
                 "source": "web",
                 "source_type": "firecrawl",
                 "url": url,
@@ -537,6 +539,7 @@ class FirecrawlManager:
                     "chunks": len(chunk_ids)
                 }
             else:
+                raise RuntimeError("DocumentProcessor is not available")
                 # Direct vector DB method if document processor not available
                 chunks, chunk_metadatas = self._chunk_document(markdown, metadata)
                 

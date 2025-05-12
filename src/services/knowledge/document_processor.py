@@ -2,8 +2,7 @@ import logging
 import re
 import uuid
 from typing import List, Dict, Any, Optional, Tuple, Union
-from datetime import datetime
-
+import datetime
 from db.vector_db import VectorDB
 
 logger = logging.getLogger(__name__)
@@ -23,14 +22,14 @@ class DocumentProcessor:
         self.vector_db = vector_db or VectorDB(collection_name="documents")
     
     async def process_document(
-        self, 
-        content: str, 
-        metadata: Dict[str, Any],
-        chunk_size: int = 500,
-        chunk_overlap: int = 50
-    ) -> List[str]:
+    self, 
+    content: str, 
+    metadata: Dict[str, Any],
+    chunk_size: int = 500, #put 500 again
+    chunk_overlap: int = 50
+) -> List[str]:
         """
-        Process a document and store it in the vector database.
+        Process a document and store it in the vector database with update-aware logic.
         
         Args:
             content: The document content
@@ -39,37 +38,84 @@ class DocumentProcessor:
             chunk_overlap: Overlap between chunks in characters
             
         Returns:
-            List of chunk IDs
+            List of final chunk IDs
         """
         try:
             # Generate a document ID if not provided
             doc_id = metadata.get("doc_id", str(uuid.uuid4()))
-            
-            # Add document ID and timestamp to metadata
             metadata["doc_id"] = doc_id
-            metadata["processed_at"] = datetime.now().isoformat()
-            
+
+            # Generate file ID and name
+            file_id = metadata.get("file_id", doc_id)
+            file_name = metadata.get("file_name", "unknown")
+            current_time = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
+            metadata["processed_at"] = current_time
+
             # Chunk the document
             chunks, chunk_metadatas = self._chunk_document(content, metadata, chunk_size, chunk_overlap)
-            
-            # Add chunks to vector database
-            chunk_ids = self.vector_db.add_documents(
+            num_chunks = len(chunks)
+
+            # Access the Chroma collection
+            collection = self.vector_db.collection
+
+            # Step 1: Insert temp chunks
+            temp_ids = []
+            temp_metadatas = []
+
+            for i, chunk in enumerate(chunks):
+                temp_id = f"temp__{file_id}__{i}"
+                chunk_metadata = chunk_metadatas[i]
+                chunk_metadata.update({
+                    "file_id": file_id,
+                    "file_name": file_name,
+                    "chunk_index": i,
+                    "num_chunks": num_chunks,
+                    "last_modified": current_time,
+                    "temp": True
+                })
+                temp_ids.append(temp_id)
+                temp_metadatas.append(chunk_metadata)
+
+            collection.add(
+                ids=temp_ids,
                 documents=chunks,
-                metadatas=chunk_metadatas
+                metadatas=temp_metadatas
             )
-            
-            logger.info(f"Processed document {doc_id} into {len(chunks)} chunks")
-            return chunk_ids
-        
+
+            # Step 2: Replace old chunks
+            collection.delete(where={"file_id": file_id})
+
+            final_ids = []
+            for i, chunk in enumerate(chunks):
+                final_id = f"{file_id}_{i}"
+                chunk_metadata = chunk_metadatas[i]
+                chunk_metadata.pop("temp", None)
+                collection.add(
+                    ids=[final_id],
+                    documents=[chunk],
+                    metadatas=[chunk_metadata]
+                )
+                final_ids.append(final_id)
+
+            # Cleanup temp chunks
+            collection.delete(where={"$and": [{"file_id": {"$eq": file_id}}, {"temp": {"$eq": True}}]})
+
+            logger.info(f"✅ Stored {len(final_ids)} chunks for document {file_id}")
+            return final_ids
+
         except Exception as e:
-            logger.error(f"Error processing document: {e}")
+            logger.error(f"❌ Error processing document {metadata.get('file_id', 'unknown')}: {e}")
+            try:
+                collection.delete(where={"file_id": metadata.get("file_id", doc_id), "temp": True})
+            except:
+                logger.error("⚠️ Failed to clean up temp chunks.")
             raise e
-    
+
     def _chunk_document(
         self, 
         content: str, 
         metadata: Dict[str, Any],
-        chunk_size: int = 500,
+        chunk_size: int = 5,
         chunk_overlap: int = 50
     ) -> Tuple[List[str], List[Dict[str, Any]]]:
         """
@@ -140,12 +186,14 @@ class DocumentProcessor:
         Returns:
             Dictionary containing search results
         """
+        print("search inside document processor")
         try:
             # Use the vector_db search directly (not async)
             results = self.vector_db.search(
                 query=query,
                 n_results=n_results,
-                filter_criteria=filter_criteria
+                filter_criteria=filter_criteria, 
+                return_full_documents=True
             )
             
             return results
@@ -188,3 +236,40 @@ class DocumentProcessor:
             output.append(result)
         
         return "\n\n".join(output)
+    
+    def fetch_document_by_id(self, file_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve and reconstruct a full document by its file_id (i.e., document ID).
+        
+        Args:
+            file_id: The file/document ID.
+        
+        Returns:
+            Dictionary with 'content' and 'metadata', or None if not found.
+        """
+        print("fetch document by id inside document processor with id", file_id)
+        try:
+            chunk_data = self.vector_db.get_chunks_by_file_id(file_id)
+            documents = chunk_data.get("documents", [])
+            metadatas = chunk_data.get("metadatas", [])
+
+            if not documents:
+                logger.warning(f"No chunks found for document ID {file_id}")
+                return None
+
+            # Reconstruct full text
+            indexed_chunks = zip(metadatas, documents)
+            sorted_chunks = sorted(indexed_chunks, key=lambda pair: pair[0].get("chunk_index", 0))
+            full_text = "\n\n".join(chunk for _, chunk in sorted_chunks)
+
+            # Use the first chunk's metadata as base (common practice)
+            base_metadata = metadatas[0] if metadatas else {}
+
+            return {
+                "content": full_text,
+                "metadata": base_metadata
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching document by ID {file_id}: {e}")
+            return None

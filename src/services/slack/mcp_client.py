@@ -153,6 +153,8 @@ class MCPSlackClient:
                 "input_schema": tool.inputSchema
             } for tool in tool_list_response.tools]
             logger.info(f" Available tools: {[tool['name'] for tool in available_tools]}")
+            #print available tools
+            print(f"Available tools: {[tool['name'] for tool in available_tools]}")
 
             # Build message list
             messages = []
@@ -194,6 +196,7 @@ class MCPSlackClient:
 
                         # Call tool
                         result = await self.session.call_tool(tool_name, tool_args)
+                        print("called tool", tool_name, "with args", tool_args)
 
                         # Continue conversation with tool result
                         messages.append({

@@ -103,21 +103,23 @@ class VectorDB:
             raise e
     
     def search(
-        self, 
-        query: str, 
-        n_results: int = 5, 
-        filter_criteria: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    self, 
+    query: str, 
+    n_results: int = 5, 
+    filter_criteria: Optional[Dict[str, Any]] = None,
+    return_full_documents: bool = False
+) -> Dict[str, Any]:
         """
         Search for documents based on a query.
         
         Args:
             query: The search query
             n_results: Number of results to return
-            filter_criteria: Filter to apply to the search
-            
+            filter_criteria: Optional metadata filter
+            return_full_documents: Whether to return reconstructed full documents
+        
         Returns:
-            Dictionary containing search results
+            Dictionary with search results or full documents
         """
         try:
             results = self.collection.query(
@@ -125,12 +127,19 @@ class VectorDB:
                 n_results=n_results,
                 where=filter_criteria
             )
-            
+
+            if return_full_documents:
+                metadatas = results.get("metadatas", [[]])[0]
+                full_docs = self.recover_full_documents_from_matches(metadatas)
+                return {"documents": full_docs}
+
             logger.info(f"Found {len(results.get('documents', [[]])[0])} results for query: {query}")
             return results
+
         except Exception as e:
             logger.error(f"Error searching collection: {e}")
             raise e
+
     
     def delete(self, ids: List[str]) -> None:
         """
@@ -176,3 +185,77 @@ class VectorDB:
         except Exception as e:
             logger.error(f"Error counting documents in collection: {e}")
             raise e
+        
+    def get_chunks_by_file_id(self, file_id: str) -> Dict[str, Any]:
+        """
+        Retrieve all chunks associated with a specific file_id and write them to a debug text file.
+        
+        Args:
+            file_id: The file identifier to retrieve chunks for.
+        
+        Returns:
+            Dictionary with 'documents' and 'metadatas' for all chunks.
+        """
+        try:
+            results = self.collection.get()
+            matching_docs = []
+            matching_metas = []
+
+            #debug_lines = [f"🔍 Searching for file_id: {file_id}\n"]
+
+            for doc, meta in zip(results.get("documents", []), results.get("metadatas", [])):
+                found_id = meta.get("file_id", "N/A")
+                if found_id == file_id:
+                    matching_docs.append(doc)
+                    matching_metas.append(meta)
+                    #debug_lines.append(f"\n✅ MATCH:\nfile_id: {found_id}\nchunk_index: {meta.get('chunk_index')}\ndoc_snippet: {doc[:200]}...\n")
+                else:
+                    #debug_lines.append(f"⛔️ No match: found file_id = {found_id}\n")
+                    pass
+            #debug_lines.append(f"\nTotal matches found: {len(matching_docs)}\n")
+
+            #with open("chunk_debug_output.txt", "w", encoding="utf-8") as f:
+                #f.writelines(debug_lines)
+
+            logger.info(f"Retrieved {len(matching_docs)} chunks for file_id: {file_id}")
+            return {"documents": matching_docs, "metadatas": matching_metas}
+        
+        except Exception as e:
+            logger.error(f"Error retrieving chunks for file_id {file_id}: {e}")
+            return {"documents": [], "metadatas": []}
+
+    
+    def recover_full_documents_from_matches(self, matched_metadatas: List[Dict[str, Any]]) -> Dict[str, str]:
+        """
+        Given a list of matched chunk metadata, return full reconstructed documents for each file.
+        
+        Args:
+            matched_metadatas: List of metadata dicts for matched chunks.
+        
+        Returns:
+            Dict mapping file_id → full document text.
+        """
+        seen_file_ids = set()
+        reconstructed_files = {}
+
+        for metadata in matched_metadatas:
+            file_id = metadata.get("file_id")
+            if not file_id or file_id in seen_file_ids:
+                continue
+
+            seen_file_ids.add(file_id)
+            file_chunks = self.get_chunks_by_file_id(file_id)
+
+            metadatas = file_chunks.get("metadatas", [])
+            documents = file_chunks.get("documents", [])
+
+            if not metadatas or not documents:
+                continue
+
+            indexed_chunks = zip(metadatas, documents)
+            sorted_chunks = sorted(indexed_chunks, key=lambda pair: pair[0].get("chunk_index", 0))
+            full_text = "\n\n".join(chunk for _, chunk in sorted_chunks)
+            reconstructed_files[file_id] = full_text
+
+        return reconstructed_files
+

@@ -237,38 +237,34 @@ class ConversationManager:
     @staticmethod
     async def get_conversation_history_for_claude(db: Session, conversation_id: str) -> List[Dict[str, Any]]:
         """
-        Get conversation history formatted for Claude.
-        
-        Args:
-            db: Database session
-            conversation_id: The conversation ID
-            
-        Returns:
-            List[Dict]: Formatted messages for Claude
+        Return structured conversation history for use with LLMs (Claude/GPT).
         """
         try:
             messages = await ConversationManager.get_conversation_messages(db, conversation_id)
-            
+
+            # Ensure messages are ordered by timestamp
+            messages = sorted(messages, key=lambda m: m.platform_ts)
+
             formatted_messages = []
             for msg in messages:
-                # Only include user and assistant messages for Claude
                 if msg.role in ["user", "assistant"]:
                     formatted_messages.append({
                         "role": msg.role,
                         "content": msg.content
                     })
-                # Include tool messages as well
                 elif msg.role == "tool":
                     formatted_messages.append({
                         "role": "tool",
                         "content": msg.content,
-                        "name": msg.meta_data.get("tool_name") if msg.meta_data else "unknown_tool"
+                        "name": msg.meta_data.get("tool_name") if msg.meta_data else "tool"
                     })
-                    
+
             return formatted_messages
+
         except SQLAlchemyError as e:
             logger.error(f"Error getting history for conversation {conversation_id}: {e}")
-            raise e
+            raise
+
     
     @staticmethod
     async def end_conversation(db: Session, conversation_id: str) -> bool:

@@ -4,6 +4,7 @@ import re
 import asyncio
 from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime
+import hashlib
 
 from services.mcp.web_fetch import MCPWebFetch
 from services.knowledge.document_processor import DocumentProcessor
@@ -28,6 +29,7 @@ class WebContentManager:
         self.document_processor = document_processor
         self.web_fetch = web_fetch or MCPWebFetch()
     
+    
     async def add_url_to_knowledge_base(
         self, 
         url: str, 
@@ -46,59 +48,56 @@ class WebContentManager:
             Dict with status and document info
         """
         if not self.document_processor:
-            return {
-                "status": "error",
-                "error": "Document processor not initialized"
-            }
-        
-        # Fetch the URL content
-        fetch_result = await self.web_fetch.fetch_url(url)
-        
-        if fetch_result["status"] != "success":
-            return fetch_result
-        
-        content = fetch_result["content"]
-        
-        # Extract title from the markdown content (assuming first line is title)
-        title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-        title = title_match.group(1) if title_match else "Web Page"
-        
-        # Prepare document metadata
-        doc_id = f"web_{uuid.uuid4()}"
-        metadata = {
-            "doc_id": doc_id,
-            "source": "web",
-            "url": url,
-            "title": title,
-            "author": "Web Content",
-            "created_at": datetime.now().isoformat(),
-            "processed_at": datetime.now().isoformat()
-        }
-        
+            return {"status": "error", "url": url, "error": "Document processor not initialized"}
+
         try:
-            # Process and store the document
+            fetch_result = await self.web_fetch.fetch_url(url)
+
+            if fetch_result["status"] != "success":
+                return {"status": "error", "url": url, "error": fetch_result.get("error", "Fetch failed")}
+
+            content = fetch_result["content"]
+
+            # Try to extract title
+            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+            title = title_match.group(1) if title_match else "Web Page"
+
+            # Use deterministic doc ID (hash of URL)
+            doc_id = f"web_{hashlib.md5(url.encode()).hexdigest()}"
+
+            metadata = {
+                "doc_id": doc_id,
+                "source": "web",
+                "url": url,
+                "title": title,
+                "author": "Web Content",
+                "created_at": datetime.now().isoformat(),
+                "synchronized_at": datetime.now().isoformat()
+            }
+
             chunk_ids = await self.document_processor.process_document(
                 content=content,
                 metadata=metadata,
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap
             )
-            
+
             return {
                 "status": "success",
+                "url": url,
                 "doc_id": doc_id,
                 "title": title,
-                "url": url,
                 "chunk_count": len(chunk_ids)
             }
-            
+
         except Exception as e:
-            logger.error(f"Error processing web content: {e}")
+            logger.error(f"Error processing URL {url}: {e}")
             return {
                 "status": "error",
-                "error": f"Error processing web content: {str(e)}"
+                "url": url,
+                "error": str(e)
             }
-    
+        
     async def add_multiple_urls(
         self, 
         urls: List[str], 

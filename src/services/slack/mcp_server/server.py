@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from slack_sdk import WebClient
 from dotenv import load_dotenv
+import datetime
 
 # Import knowledge tools
 try:
@@ -279,7 +280,7 @@ TOOLS = [
     },
     {
         "name": "web_fetch",
-        "description": "Fetch content from a URL and add it to the knowledge base",
+        "description": "Fetch content from a URL and add it to the knowledge base. If needed, you can then call fetch_document to retrieve the content.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -405,6 +406,7 @@ async def handle_request():
                         
                     # Knowledge tools with actual document processor integration
                     elif tool_name == "search":
+                        print("search tool")
                         query = arguments.get("query", "")
                         source_filter = arguments.get("source", "all")
                         
@@ -419,7 +421,7 @@ async def handle_request():
                                 filter_criteria = None
                                 if source_filter != "all":
                                     filter_criteria = {"source": source_filter}
-                                
+                                print("call search_documents")
                                 # Perform the search
                                 search_results = await document_processor.search_documents(
                                     query=query,
@@ -471,35 +473,25 @@ async def handle_request():
                     elif tool_name == "fetch_document":
                         document_id = arguments.get("document_id", "")
                         source = arguments.get("source", "")
-                        
-                        if not document_processor or not document_processor.vector_db:
+
+                        if not document_processor:
                             result = {
                                 "ok": False,
-                                "message": "Document processor or vector database not available"
+                                "message": "Document processor not available"
                             }
                         else:
                             try:
-                                # Build filter criteria based on source
-                                filter_criteria = None
-                                if source:
-                                    filter_criteria = {"source": source}
-                                
-                                # Get the document
-                                doc_result = document_processor.vector_db.get(
-                                    ids=[document_id],
-                                    where=filter_criteria
-                                )
-                                
-                                if not doc_result or not doc_result.get("documents") or not doc_result["documents"]:
+                                doc_result = document_processor.fetch_document_by_id(document_id)
+
+                                if not doc_result or not doc_result.get("content"):
                                     result = {
                                         "ok": False,
                                         "message": f"Document {document_id} not found."
                                     }
                                 else:
-                                    # Format the document with metadata
-                                    content = doc_result["documents"][0]
-                                    metadata = doc_result["metadatas"][0] if "metadatas" in doc_result else {}
-                                    
+                                    content = doc_result["content"]
+                                    metadata = doc_result.get("metadata", {})
+
                                     source_type = metadata.get("source", source or "knowledge_base")
                                     source_info = {
                                         "type": source_type,
@@ -507,17 +499,11 @@ async def handle_request():
                                         "id": document_id,
                                         "url": metadata.get("url", ""),
                                     }
-                                    
-                                    # Add date information if available
-                                    if "created_at" in metadata:
-                                        source_info["created_at"] = metadata.get("created_at")
-                                    if "processed_at" in metadata:
-                                        source_info["processed_at"] = metadata.get("processed_at")
-                                    if "last_modified" in metadata:
-                                        source_info["last_modified"] = metadata.get("last_modified")
-                                    if "crawled_at" in metadata:
-                                        source_info["crawled_at"] = metadata.get("crawled_at")
-                                    
+
+                                    for field in ["created_at", "processed_at", "last_modified", "crawled_at"]:
+                                        if field in metadata:
+                                            source_info[field] = metadata[field]
+
                                     result = {
                                         "ok": True,
                                         "document": {
@@ -526,16 +512,18 @@ async def handle_request():
                                         },
                                         "message": f"Retrieved document {document_id}"
                                     }
+
                             except Exception as e:
                                 logger.error(f"Error fetching document: {e}")
                                 result = {
                                     "ok": False,
                                     "message": f"Error fetching document: {str(e)}"
                                 }
+
                     
                     elif tool_name == "web_fetch":
                         url = arguments.get("url", "")
-                        
+
                         if not web_content_manager:
                             result = {
                                 "ok": False,
@@ -543,40 +531,42 @@ async def handle_request():
                             }
                         else:
                             try:
-                                # Add URL to knowledge base
-                                await web_content_manager.add_url_to_knowledge_base(url)
-                                
-                                # Then fetch the content
-                                content = await web_content_manager.get_web_content(url)
-                                
-                                if not content:
+                                # Fetch and add the URL content to the knowledge base
+                                fetch_result = await web_content_manager.add_url_to_knowledge_base(url)
+
+                                if fetch_result.get("status") != "success":
                                     result = {
                                         "ok": False,
-                                        "message": f"Could not fetch content from {url}"
+                                        "message": f"Failed to fetch or process content from {url}: {fetch_result.get('error', 'Unknown error')}"
                                     }
                                 else:
-                                    # Basic metadata for web content
                                     source_info = {
                                         "type": "web",
-                                        "title": f"Web Content from {url}",
-                                        "url": url,
-                                        "fetched_at": web_content_manager.get_current_timestamp()
+                                        "title": fetch_result.get("title", "Untitled"),
+                                        "url": fetch_result.get("url", url),
+                                        "id": fetch_result.get("doc_id", ""),
+                                        "chunk_count": fetch_result.get("chunk_count", 0),
+                                        "fetched_at": datetime.datetime.now().isoformat()
                                     }
-                                    
+
                                     result = {
                                         "ok": True,
+                                        "doc_id": fetch_result.get("doc_id", ""),
                                         "document": {
-                                            "content": content,
+                                            "content": f"Fetched and processed content from {url}.",
                                             "source": source_info
                                         },
-                                        "message": f"Fetched content from {url}"
+                                        "message": f"Document fetched and stored in the knowledge base with ID: {fetch_result.get("doc_id", "")}"
                                     }
+
+
                             except Exception as e:
                                 logger.error(f"Error fetching web content: {e}")
                                 result = {
                                     "ok": False,
                                     "message": f"Error fetching web content: {str(e)}"
                                 }
+
                     
                     elif tool_name == "gdrive_search":
                         query = arguments.get("query", "")
