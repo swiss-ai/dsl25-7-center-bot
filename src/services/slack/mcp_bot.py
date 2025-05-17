@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 app = AsyncApp(token=SLACK_BOT_TOKEN) if SLACK_BOT_TOKEN else None
 mcp_client = None
 
-async def initialize_mcp_client(document_processor=None, gdrive_manager=None, web_content_manager=None):
+async def initialize_mcp_client(document_processor=None, gdrive_manager=None, web_content_manager=None, airtable_manager=None):
     """Initialize the MCP client with knowledge tools."""
     global mcp_client
     
@@ -36,7 +36,8 @@ async def initialize_mcp_client(document_processor=None, gdrive_manager=None, we
     await mcp_client.connect_to_server(
         document_processor=document_processor, 
         gdrive_manager=gdrive_manager,
-        web_content_manager=web_content_manager
+        web_content_manager=web_content_manager,
+        airtable_manager=airtable_manager
     )
     
     logger.info("MCP Slack client initialized and connected to server")
@@ -115,6 +116,7 @@ async def handle_app_mention(event, say, client):
         - Knowledge Base: [Title, Last Updated: <date>]
         - Google Drive: [Google Drive: Title, Modified: <date>]
         - Web Content: [Web: Title, URL]
+        - Airtable: [Airtable: Table Name, Record ID]
 
         KNOWLEDGE TOOLS:
         - `search`: Search for info in the knowledge base
@@ -122,6 +124,7 @@ async def handle_app_mention(event, say, client):
         - `web_fetch`: Add and retrieve content from a public URL
         - `gdrive_search`: Search for Google Drive files
         - `gdrive_get_file`: Fetch content from a Google Drive file
+        - `airtable_search`: Search for records in Airtable tables
 
         CONTEXT:
         - User is in channel `{channel_id}`, thread `{thread_ts}`
@@ -245,6 +248,7 @@ async def handle_direct_message(event, say, client):
         - For knowledge base results: [Title, Last Updated: date]
         - For Google Drive files: [Google Drive: Title, Modified: date]
         - For web content: [Web: Title, URL]
+        - For Airtable records: [Airtable: Table Name, Record ID]
         
         Always include source citation immediately after presenting information from that source.
 
@@ -254,6 +258,7 @@ async def handle_direct_message(event, say, client):
         - web_fetch: Retrieve information from a URL
         - gdrive_search: Search for files in Google Drive
         - gdrive_get_file: Get content from a Google Drive file
+        - airtable_search: Search for records in Airtable tables
 
         The user is in a direct message in channel `{channel_id}`.
         After finding information, reply with `slack_post_message`.

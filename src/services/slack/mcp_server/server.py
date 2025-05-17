@@ -14,26 +14,38 @@ try:
     # Adjust path for imports based on execution context
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(current_dir, "../../../.."))
+    src_path = os.path.join(project_root, "src")
     sys.path.append(project_root)
+    sys.path.append(src_path)
     
-    # Try relative imports first (when run within the app)
+    logging.info(f"Added paths to sys.path: {project_root}, {src_path}")
+    
+    # Try direct imports first
     try:
+        from db.vector_db import VectorDB
         from services.knowledge.document_processor import DocumentProcessor
         from services.knowledge.datasources.web_content import WebContentManager
         from services.knowledge.datasources.gdrive import GoogleDriveManager
+        from services.knowledge.datasources.airtable_manager import AirtableManager
         from services.mcp.web_fetch import MCPWebFetch
-        from db.vector_db import VectorDB
-        KNOWLEDGE_TOOLS_AVAILABLE = True #should be True
-        logging.info("Using relative imports for knowledge tools")
-    except ImportError:
-        # Fall back to absolute imports (when run directly)
-        from src.services.knowledge.document_processor import DocumentProcessor
-        from src.services.knowledge.datasources.web_content import WebContentManager
-        from src.services.knowledge.datasources.gdrive import GoogleDriveManager
-        from src.services.mcp.web_fetch import MCPWebFetch
-        from src.db.vector_db import VectorDB
-        KNOWLEDGE_TOOLS_AVAILABLE = True #should be True
-        logging.info("Using absolute imports for knowledge tools")
+        KNOWLEDGE_TOOLS_AVAILABLE = True
+        logging.info("Using direct imports for knowledge tools")
+    except ImportError as e:
+        logging.error(f"Direct import error: {e}")
+        # Fall back to src-prefixed imports
+        try:
+            from src.db.vector_db import VectorDB
+            from src.services.knowledge.document_processor import DocumentProcessor
+            from src.services.knowledge.datasources.web_content import WebContentManager
+            from src.services.knowledge.datasources.gdrive import GoogleDriveManager
+            from src.services.knowledge.datasources.airtable_manager import AirtableManager
+            from src.services.mcp.web_fetch import MCPWebFetch
+            KNOWLEDGE_TOOLS_AVAILABLE = True
+            logging.info("Using src-prefixed imports for knowledge tools")
+        except ImportError as e:
+            logging.error(f"Src-prefixed import error: {e}")
+            KNOWLEDGE_TOOLS_AVAILABLE = False
+            logging.error(f"Failed to import knowledge tools")
 except ImportError as e:
     KNOWLEDGE_TOOLS_AVAILABLE = False
     logging.error(f"Error importing knowledge tools: {e}")
@@ -42,6 +54,7 @@ except ImportError as e:
 document_processor = None
 gdrive_manager = None
 web_content_manager = None
+airtable_manager = None
 vector_db = None
 
 # Try to get components from main if available
@@ -63,6 +76,10 @@ try:
     if hasattr(main_module, 'web_content_manager') and main_module.web_content_manager:
         web_content_manager = main_module.web_content_manager
         logging.info("Using web_content_manager from main module")
+    
+    if hasattr(main_module, 'airtable_manager') and main_module.airtable_manager:
+        airtable_manager = main_module.airtable_manager
+        logging.info("Using airtable_manager from main module")
     
     if hasattr(main_module, 'vector_db') and main_module.vector_db:
         vector_db = main_module.vector_db
@@ -101,6 +118,14 @@ if not document_processor and KNOWLEDGE_TOOLS_AVAILABLE:
                 web_fetch=web_fetch
             )
             logging.info("Initialized web_content_manager locally")
+        
+        # Initialize Airtable integration if credentials exist
+        if not airtable_manager and os.getenv("AIRTABLE_API_KEY") and os.getenv("AIRTABLE_BASE_ID"):
+            airtable_manager = AirtableManager(
+                document_processor=document_processor,
+                vector_db=vector_db
+            )
+            logging.info("Initialized airtable_manager locally")
         
     except Exception as e:
         logging.error(f"Error initializing knowledge tools: {e}")
@@ -310,6 +335,18 @@ TOOLS = [
                 "file_id": {"type": "string", "description": "The ID of the file to fetch"}
             },
             "required": ["file_id"]
+        }
+    },
+    {
+        "name": "airtable_search",
+        "description": "Search for records in Airtable tables",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query"},
+                "table_name": {"type": "string", "description": "Specific table name to search in (optional)"}
+            },
+            "required": ["query"]
         }
     }
 ]
@@ -655,6 +692,36 @@ async def handle_request():
                                 result = {
                                     "ok": False,
                                     "message": f"Error getting Google Drive file: {str(e)}"
+                                }
+                    
+                    elif tool_name == "airtable_search":
+                        query = arguments.get("query", "")
+                        table_name = arguments.get("table_name", None)
+                        
+                        if not airtable_manager:
+                            result = {
+                                "ok": False,
+                                "message": "Airtable manager not available"
+                            }
+                        else:
+                            try:
+                                # Search Airtable records
+                                search_results = await airtable_manager.search_airtable_records(
+                                    query=query,
+                                    table_name=table_name,
+                                    n_results=5
+                                )
+                                
+                                # Results already formatted with a good header
+                                result = {
+                                    "ok": True,
+                                    "message": search_results
+                                }
+                            except Exception as e:
+                                logger.error(f"Error searching Airtable records: {e}")
+                                result = {
+                                    "ok": False,
+                                    "message": f"Error searching Airtable records: {str(e)}"
                                 }
                     
                     else:

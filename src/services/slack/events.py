@@ -98,10 +98,14 @@ async def handle_app_mention(event: dict):
                 platform_ts=ts
             )
             
-            # Get conversation history for context
-            conversation_history = await ConversationManager.get_conversation_history_for_claude(
+            # Get unified channel history across threads and main channel
+            # Dynamic calculation of message limits based on content length
+            conversation_history = await ConversationManager.get_channel_history_for_claude(
                 db=db,
-                conversation_id=conversation.id
+                user_id=user.id,
+                channel_id=channel_id,
+                thread_ts=thread_ts
+                # max_messages parameter omitted for dynamic calculation
             )
             
             # Use Claude MCP with tools and history - ALWAYS enable tools
@@ -203,10 +207,14 @@ async def handle_direct_message(event: dict):
                 platform_ts=ts
             )
             
-            # Get conversation history for context
-            conversation_history = await ConversationManager.get_conversation_history_for_claude(
+            # Get unified channel history across threads and main channel
+            # Dynamic calculation of message limits based on content length
+            conversation_history = await ConversationManager.get_channel_history_for_claude(
                 db=db,
-                conversation_id=conversation.id
+                user_id=user.id,
+                channel_id=channel_id,
+                thread_ts=thread_ts
+                # max_messages parameter omitted for dynamic calculation
             )
             
             # Use Claude MCP with tools and history
@@ -325,10 +333,14 @@ async def handle_message_with_context(
                 platform_ts=ts
             )
             
-            # Get conversation history for context
-            conversation_history = await ConversationManager.get_conversation_history_for_claude(
+            # Get unified channel history across threads and main channel
+            # Dynamic calculation of message limits based on content length
+            conversation_history = await ConversationManager.get_channel_history_for_claude(
                 db=db,
-                conversation_id=conversation.id
+                user_id=user.id,
+                channel_id=channel_id,
+                thread_ts=thread_ts
+                # max_messages parameter omitted for dynamic calculation
             )
             
             # Get dependencies from main to avoid circular imports

@@ -4,8 +4,6 @@ import logging
 import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-import uuid
-import re
 
 from config.settings import settings
 from services.mcp.web_fetch import MCPWebFetch
@@ -91,6 +89,9 @@ class WebContentSyncService:
                 content = fetch_result["content"]
                 
                 # Generate a document ID
+                import uuid
+                import re
+                
                 # Try to extract title from the content
                 title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
                 title = title_match.group(1) if title_match else "Web Page"
@@ -133,7 +134,7 @@ class WebContentSyncService:
                 }
         else:
             try:
-                publications = await self.web_fetch.fetch_publications(url)
+                publications = self.web_fetch.fetch_publications(url)
                 res = []
                 for publication in publications:
                     doc_id = f"web_{uuid.uuid4()}"

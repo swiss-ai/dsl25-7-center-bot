@@ -57,6 +57,7 @@ web_content_manager = None
 web_content_sync_service = None
 firecrawl_manager = None
 notion_manager = None
+airtable_manager = None
 mcp_slack_client = None  # New MCP Slack client
 
 # Include routers
@@ -71,7 +72,7 @@ async def health_check():
 @app.get("/status")
 async def status():
     """Return the status of various components."""
-    global vector_db, gdrive_manager, gdrive_mcp, web_content_manager, web_content_sync_service, firecrawl_manager, notion_manager, mcp_slack_client
+    global vector_db, gdrive_manager, gdrive_mcp, web_content_manager, web_content_sync_service, firecrawl_manager, notion_manager, airtable_manager, mcp_slack_client
     
     # Check Google Drive status
     gdrive_status = "not_initialized"
@@ -136,6 +137,17 @@ async def status():
             "pages_configured": len(notion_manager.configured_pages) if notion_manager.configured_pages else 0
         }
     
+    # Check Airtable status
+    airtable_status = "not_initialized"
+    airtable_info = {}
+    if airtable_manager:
+        airtable_status = "operational" if settings.AIRTABLE_ENABLED and settings.AIRTABLE_API_KEY and settings.AIRTABLE_BASE_ID else "not_configured"
+        airtable_info = {
+            "enabled": settings.AIRTABLE_ENABLED,
+            "base_id": settings.AIRTABLE_BASE_ID,
+            "tables_configured": len(settings.AIRTABLE_TABLES.split(',')) if settings.AIRTABLE_TABLES else 0
+        }
+    
     # Check MCP Slack bot status
     mcp_slack_status = "not_initialized"
     if mcp_slack_client:
@@ -168,6 +180,7 @@ async def status():
             "web_content_sync": web_sync_status,
             "firecrawl": firecrawl_status,
             "notion": notion_status,
+            "airtable": airtable_status,
             "mcp_slack_bot": mcp_slack_status
         },
         "document_count": vector_db.count() if vector_db else 0,
@@ -190,6 +203,12 @@ async def status():
             "enabled": settings.NOTION_ENABLED,
             "api_key_configured": bool(settings.NOTION_API_KEY),
             **notion_info
+        },
+        "airtable": {
+            "enabled": settings.AIRTABLE_ENABLED,
+            "api_key_configured": bool(settings.AIRTABLE_API_KEY),
+            "base_id_configured": bool(settings.AIRTABLE_BASE_ID),
+            **airtable_info
         },
         "mcp_slack_bot": {
             "enabled": os.getenv("SLACK_APP_TOKEN") is not None,
@@ -236,6 +255,11 @@ def get_notion_manager():
     global notion_manager
     return notion_manager
 
+def get_airtable_manager():
+    """Dependency to get the Airtable Manager instance."""
+    global airtable_manager
+    return airtable_manager
+
 def get_mcp_slack_client():
     """Dependency to get the MCP Slack client."""
     global mcp_slack_client
@@ -253,14 +277,14 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     """Initialize components on application startup."""
-    global vector_db, document_processor, gdrive_manager, gdrive_mcp, firecrawl_manager, notion_manager, mcp_slack_client
+    global vector_db, document_processor, gdrive_manager, gdrive_mcp, firecrawl_manager, notion_manager, airtable_manager, mcp_slack_client
     
     logger.info("Initializing database...")
     init_db()
     
-    # Create test data if in development mode
-    if settings.ENVIRONMENT.lower() == "development":
-        create_test_data()
+    # Skipping test data creation to avoid unique constraint errors
+    # if settings.ENVIRONMENT.lower() == "development":
+    #    create_test_data()
     
     # Initialize vector database
     logger.info("Initializing vector database...")
@@ -402,96 +426,34 @@ async def startup_event():
         logger.error(f"Traceback: {traceback.format_exc()}")
         web_content_manager = None
 
-    # Initialize Web Content Sync Service if enabled
+    # Initialize Web Content sync service if enabled
     if settings.WEB_CONTENT_ENABLED:
         try:
-            import traceback
-            # Import and initialize the Web Content Sync Service
+            logger.info("Initializing Web Content sync service...")
             from services.knowledge.web_content_sync import WebContentSyncService
-            from services.mcp.web_fetch import MCPWebFetch
             
-            # Create and initialize the Web Content Sync Service
-            web_fetch = MCPWebFetch()
             web_content_sync_service = WebContentSyncService(
                 document_processor=document_processor,
-                web_fetch=web_fetch
+                web_fetch=web_fetch if 'web_fetch' in locals() else None
             )
             
-            # Start the scheduled sync in a background task
-            sync_task = asyncio.create_task(web_content_sync_service.start_scheduled_sync())
+            # Start scheduled sync if configured
+            if settings.WEB_CONTENT_SYNC_INTERVAL > 0:
+                asyncio.create_task(web_content_sync_service.start_scheduled_sync())
+                logger.info(f"Web Content sync scheduled every {settings.WEB_CONTENT_SYNC_INTERVAL} seconds")
             
-            # Also trigger an initial sync
-            initial_sync_task = asyncio.create_task(web_content_sync_service.manual_sync())
-            
-            logger.info(f"Web Content sync service initialized with interval: {settings.WEB_CONTENT_SYNC_INTERVAL}s")
-            logger.info(f"Using URLs file: {settings.WEB_CONTENT_URLS_FILE}")
-            
+            logger.info("Web Content sync service initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing Web Content sync service: {e}")
-            try:
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-            except:
-                logger.error("Could not log traceback")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             web_content_sync_service = None
     else:
         logger.info("Web Content sync service disabled")
         web_content_sync_service = None
     
-    # Initialize Firecrawl if enabled
-    if settings.FIRECRAWL_ENABLED:
-        try:
-            # Check if Firecrawl is available
-            try:
-                from firecrawl import Crawler
-                FIRECRAWL_AVAILABLE = True
-            except ImportError:
-                logger.warning("Firecrawl package not installed. Install with 'pip install firecrawl'")
-                FIRECRAWL_AVAILABLE = False
-            
-            if FIRECRAWL_AVAILABLE:
-                # Initialize Firecrawl Manager
-                from services.knowledge.datasources.firecrawl_manager import FirecrawlManager
-                
-                logger.info("Initializing Firecrawl integration...")
-                firecrawl_manager = FirecrawlManager(
-                    config_path=settings.FIRECRAWL_CONFIG_PATH,
-                    document_processor=document_processor,
-                    vector_db=vector_db
-                )
-                
-                # Start the crawl service in a background task
-                crawl_task = asyncio.create_task(firecrawl_manager.start_crawl_service())
-                
-                # Add callback to log when it's done
-                def crawl_service_started_callback(task):
-                    try:
-                        result = task.result()
-                        if result:
-                            logger.info("Firecrawl service started successfully")
-                        else:
-                            logger.error("Failed to start Firecrawl service")
-                    except Exception as e:
-                        logger.error(f"Error in Firecrawl service startup: {e}")
-                
-                crawl_task.add_done_callback(crawl_service_started_callback)
-                logger.info(f"Firecrawl integration initialized with config: {settings.FIRECRAWL_CONFIG_PATH}")
-            else:
-                logger.warning("Firecrawl integration disabled due to missing dependencies")
-                firecrawl_manager = None
-                
-        except Exception as e:
-            logger.error(f"Error initializing Firecrawl integration: {e}")
-            # Log the full traceback for better debugging
-            try:
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-            except:
-                logger.error("Could not log traceback")
-            firecrawl_manager = None
-    else:
-        logger.info("Firecrawl integration disabled")
-        firecrawl_manager = None
+    # Firecrawl integration disabled
+    logger.info("Firecrawl integration disabled")
+    firecrawl_manager = None
     
     # Initialize Notion integration if enabled
     if settings.NOTION_ENABLED:
@@ -522,6 +484,50 @@ async def startup_event():
         logger.info("Notion integration disabled")
         notion_manager = None
     
+    # Initialize Airtable integration if enabled
+    if settings.AIRTABLE_ENABLED:
+        try:
+            # Initialize Airtable Manager
+            from services.knowledge.datasources.airtable_manager import AirtableManager
+            
+            logger.info("Initializing Airtable integration...")
+            airtable_manager = AirtableManager(
+                document_processor=document_processor,
+                vector_db=vector_db
+            )
+            
+            # Check if API key and base ID are configured
+            if not settings.AIRTABLE_API_KEY:
+                logger.warning("Airtable API key not configured. Airtable integration will not function properly.")
+            elif not settings.AIRTABLE_BASE_ID:
+                logger.warning("Airtable Base ID not configured. Add base ID to AIRTABLE_BASE_ID environment variable.")
+            else:
+                logger.info(f"Airtable integration initialized for base {settings.AIRTABLE_BASE_ID}")
+                
+                # Trigger an initial sync in the background
+                async def initial_airtable_sync():
+                    try:
+                        logger.info("Starting initial Airtable sync...")
+                        sync_result = await airtable_manager.sync_airtable_base()
+                        if sync_result.get("status") == "success":
+                            logger.info(f"✅ Airtable sync completed: {sync_result.get('documents', 0)} documents processed")
+                        else:
+                            logger.warning(f"⚠️ Airtable sync had issues: {sync_result.get('message', 'unknown error')}")
+                    except Exception as e:
+                        logger.error(f"Error during initial Airtable sync: {e}")
+                
+                # Start the initial sync as a background task
+                asyncio.create_task(initial_airtable_sync())
+                
+        except Exception as e:
+            logger.error(f"Error initializing Airtable integration: {e}")
+            # Log the full traceback for better debugging
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            airtable_manager = None
+    else:
+        logger.info("Airtable integration disabled")
+        airtable_manager = None
+    
     # Initialize MCP Slack client and Socket Mode
     try:
         # Check if MCP is available
@@ -545,7 +551,8 @@ async def startup_event():
                     mcp_slack_client = await initialize_mcp_client(
                         document_processor=document_processor,
                         gdrive_manager=gdrive_manager,
-                        web_content_manager=web_content_manager
+                        web_content_manager=web_content_manager,
+                        airtable_manager=airtable_manager
                     )
                     
                     if mcp_slack_client:

@@ -122,23 +122,51 @@ class VectorDB:
             Dictionary with search results or full documents
         """
         try:
+            logger.info(f"VectorDB.search: query='{query}', n_results={n_results}, filter={filter_criteria}, return_full_docs={return_full_documents}")
+            
+            # Check if collection is properly initialized
+            if not self.collection:
+                logger.error("Collection not initialized properly")
+                return {"documents": [[]], "metadatas": [[]], "ids": [[]], "distances": [[]]}
+            
+            # Perform the query with additional debug info
+            logger.info(f"Executing chromadb query with query_texts=['{query}']")
             results = self.collection.query(
                 query_texts=[query],
                 n_results=n_results,
                 where=filter_criteria
             )
-
+            
+            # Detailed logging of the query results
+            doc_count = len(results.get("documents", [[]])[0]) if results.get("documents") else 0
+            meta_count = len(results.get("metadatas", [[]])[0]) if results.get("metadatas") else 0
+            ids_count = len(results.get("ids", [[]])[0]) if results.get("ids") else 0
+            
+            logger.info(f"Query results: {doc_count} documents, {meta_count} metadatas, {ids_count} ids")
+            
+            if doc_count == 0:
+                logger.warning(f"No matching documents found for query: '{query}'")
+                return results
+                
             if return_full_documents:
-                metadatas = results.get("metadatas", [[]])[0]
-                full_docs = self.recover_full_documents_from_matches(metadatas)
-                return {"documents": full_docs}
+                logger.info("Attempting to recover full documents from search results")
+                try:
+                    metadatas = results.get("metadatas", [[]])[0]
+                    full_docs = self.recover_full_documents_from_matches(metadatas)
+                    logger.info(f"Successfully recovered {len(full_docs)} full documents")
+                    return {"documents": full_docs}
+                except Exception as full_doc_error:
+                    logger.error(f"Error recovering full documents: {full_doc_error}", exc_info=True)
+                    # Return original results if full document recovery fails
+                    return results
 
-            logger.info(f"Found {len(results.get('documents', [[]])[0])} results for query: {query}")
+            logger.info(f"Found {doc_count} results for query: '{query}'")
             return results
 
         except Exception as e:
-            logger.error(f"Error searching collection: {e}")
-            raise e
+            logger.error(f"Error searching collection: {e}", exc_info=True)
+            # Return empty results instead of raising the exception
+            return {"documents": [[]], "metadatas": [[]], "ids": [[]], "distances": [[]]}
 
     
     def delete(self, ids: List[str]) -> None:
@@ -235,27 +263,139 @@ class VectorDB:
         Returns:
             Dict mapping file_id → full document text.
         """
+        # Enhanced debugging
+        logger.info(f"recover_full_documents_from_matches: received {len(matched_metadatas)} metadata entries")
+        
+        # Early exit for empty metadata list
+        if not matched_metadatas:
+            logger.warning("No metadata entries provided for document recovery")
+            return {}
+            
+        # Check if the input is the expected type
+        if not isinstance(matched_metadatas, list):
+            logger.error(f"Expected matched_metadatas to be a list, got {type(matched_metadatas)}")
+            # Return a valid but empty result rather than failing
+            return {}
+        
         seen_file_ids = set()
         reconstructed_files = {}
 
-        for metadata in matched_metadatas:
-            file_id = metadata.get("file_id")
-            if not file_id or file_id in seen_file_ids:
-                continue
+        try:
+            for i, metadata in enumerate(matched_metadatas):
+                # Validate metadata entry is a dictionary
+                if not isinstance(metadata, dict):
+                    logger.warning(f"Metadata entry {i+1} is not a dictionary: {metadata}")
+                    continue
+                
+                # Check for file_id in metadata
+                file_id = metadata.get("file_id")
+                if not file_id:
+                    # Try alternative fields if file_id is missing
+                    file_id = metadata.get("doc_id") or metadata.get("id")
+                    if not file_id:
+                        logger.warning(f"Metadata entry {i+1} missing file_id or alternative ID: {metadata}")
+                        continue
+                    logger.info(f"Using alternative ID field for file_id: {file_id}")
+                    
+                if file_id in seen_file_ids:
+                    logger.debug(f"File ID {file_id} already processed, skipping duplicate")
+                    continue
 
-            seen_file_ids.add(file_id)
-            file_chunks = self.get_chunks_by_file_id(file_id)
+                logger.info(f"Retrieving chunks for file_id: {file_id}")
+                seen_file_ids.add(file_id)
+                
+                # Get all chunks for this file
+                try:
+                    file_chunks = self.get_chunks_by_file_id(file_id)
+                    
+                    metadatas = file_chunks.get("metadatas", [])
+                    documents = file_chunks.get("documents", [])
 
-            metadatas = file_chunks.get("metadatas", [])
-            documents = file_chunks.get("documents", [])
+                    if not metadatas or not documents:
+                        logger.warning(f"No chunks found for file_id: {file_id}")
+                        # Use the original matched chunk as fallback
+                        if "documents" in metadata and isinstance(metadata["documents"], str):
+                            reconstructed_files[file_id] = metadata["documents"]
+                            logger.info(f"Using original matched chunk as fallback for file_id: {file_id}")
+                        continue
 
-            if not metadatas or not documents:
-                continue
-
-            indexed_chunks = zip(metadatas, documents)
-            sorted_chunks = sorted(indexed_chunks, key=lambda pair: pair[0].get("chunk_index", 0))
-            full_text = "\n\n".join(chunk for _, chunk in sorted_chunks)
-            reconstructed_files[file_id] = full_text
-
-        return reconstructed_files
+                    # Safe check for equal lengths
+                    if len(metadatas) != len(documents):
+                        logger.warning(f"Mismatched lengths: metadatas={len(metadatas)}, documents={len(documents)}")
+                        min_len = min(len(metadatas), len(documents))
+                        metadatas = metadatas[:min_len]
+                        documents = documents[:min_len]
+                    
+                    if len(documents) == 0:
+                        logger.warning(f"No valid chunks found for file_id: {file_id}")
+                        continue
+                        
+                    logger.info(f"Retrieved {len(documents)} chunks for file_id: {file_id}")
+                    
+                    # Create paired entries and sort by chunk_index
+                    try:
+                        indexed_chunks = list(zip(metadatas, documents))
+                        
+                        # Check if chunk_index is present and is an integer
+                        has_valid_chunk_index = all(
+                            isinstance(meta.get("chunk_index"), int) or 
+                            (isinstance(meta.get("chunk_index"), str) and meta.get("chunk_index", "").isdigit())
+                            for meta in metadatas
+                        )
+                        
+                        if has_valid_chunk_index:
+                            # Sort by chunk_index if available
+                            def get_chunk_index(pair):
+                                chunk_idx = pair[0].get("chunk_index", 0)
+                                if isinstance(chunk_idx, str) and chunk_idx.isdigit():
+                                    return int(chunk_idx)
+                                return 0 if chunk_idx is None else chunk_idx
+                                
+                            sorted_chunks = sorted(indexed_chunks, key=get_chunk_index)
+                        else:
+                            # Skip sorting if no valid chunk_index
+                            logger.warning(f"No valid chunk_index found for file_id: {file_id}, using original order")
+                            sorted_chunks = indexed_chunks
+                        
+                        # Reconstruct full text
+                        chunks_text = []
+                        for meta, doc in sorted_chunks:
+                            if isinstance(doc, str):  # Ensure document is a string
+                                chunks_text.append(doc)
+                        
+                        if not chunks_text:
+                            logger.warning(f"No valid text chunks found for file_id: {file_id}")
+                            continue
+                            
+                        full_text = "\n\n".join(chunks_text)
+                        reconstructed_files[file_id] = full_text
+                        logger.info(f"Successfully reconstructed document for file_id: {file_id} ({len(full_text)} chars)")
+                        
+                    except Exception as chunk_error:
+                        logger.error(f"Error processing chunks for file_id {file_id}: {chunk_error}", exc_info=True)
+                        # Try to use single chunk as fallback
+                        if documents and isinstance(documents[0], str):
+                            reconstructed_files[file_id] = documents[0]
+                            logger.info(f"Using first chunk as fallback for file_id: {file_id}")
+                except Exception as file_error:
+                    logger.error(f"Error getting chunks for file_id {file_id}: {file_error}", exc_info=True)
+            
+            # If we didn't reconstruct any documents, return a basic result to prevent errors
+            if not reconstructed_files and matched_metadatas:
+                # Try to create a basic document from the first metadata entry
+                first_meta = matched_metadatas[0]
+                if isinstance(first_meta, dict):
+                    first_id = first_meta.get("file_id") or first_meta.get("doc_id") or first_meta.get("id") or "unknown_document"
+                    reconstructed_files[first_id] = "Document content could not be reconstructed"
+                    logger.warning(f"Created placeholder content for {first_id} to prevent empty results")
+            
+            logger.info(f"Document recovery complete: reconstructed {len(reconstructed_files)} documents")
+            return reconstructed_files
+            
+        except Exception as e:
+            logger.error(f"Error in document recovery: {e}", exc_info=True)
+            # Return a non-empty result to prevent "0" error
+            if not reconstructed_files:
+                reconstructed_files["unknown_document"] = "Document content could not be reconstructed"
+            return reconstructed_files  # Return any documents we managed to reconstruct
 

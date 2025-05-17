@@ -25,6 +25,12 @@ IMPORTANT RESTRICTIONS:
 3. DO NOT use your general knowledge to answer questions - only use the search and file access tools
 4. You MUST cite the source of all information you provide (file name, search result, URL, etc.)
 
+CONVERSATION CONTEXT HANDLING:
+- You will receive the recent conversation history between you and the user
+- When asked to summarize what you've told the user before, refer to this conversation history
+- You can reference your previous messages and the user's questions from the history
+- When the user asks about something you've previously discussed, use the history to provide context
+
 DATA SOURCES YOU CAN ACCESS:
 1. Knowledge Base - Vector database with previously stored information
 2. Google Drive - Access to shared documents, spreadsheets, and PDFs
@@ -176,6 +182,33 @@ try:
 except ImportError:
     pass
 
+# Import Airtable tools
+try:
+    # Define Airtable search tool
+    AIRTABLE_SEARCH_TOOL = MCPTool(
+        name="airtable_search",
+        description="Search for records in Airtable tables",
+        parameters=[
+            MCPToolParameter(
+                name="query",
+                description="The search query",
+                type="string",
+                required=True
+            ),
+            MCPToolParameter(
+                name="table_name",
+                description="Specific table name to search in (optional)",
+                type="string",
+                required=False
+            )
+        ]
+    )
+    
+    # Add to default tools
+    DEFAULT_TOOLS.append(AIRTABLE_SEARCH_TOOL)
+except Exception:
+    pass
+
 class ClaudeMCPRequestFormatter:
     """Helper class to format Claude MCP requests."""
     
@@ -235,7 +268,8 @@ class ToolExecution:
         source: str = "all", 
         document_processor=None,
         gdrive_mcp=None,
-        web_content_manager=None
+        web_content_manager=None,
+        airtable_manager=None
     ) -> str:
         """
         Execute a search across knowledge sources.
@@ -246,6 +280,7 @@ class ToolExecution:
             document_processor: Document processor instance (optional)
             gdrive_mcp: Google Drive MCP instance (optional)
             web_content_manager: Web Content Manager instance (optional)
+            airtable_manager: Airtable Manager instance (optional)
             
         Returns:
             Search results as text
@@ -260,23 +295,43 @@ class ToolExecution:
             try:
                 # Build filter criteria based on source
                 filter_criteria = None
-                if source != "all" and source != "drive" and source != "web":
+                if source != "all" and source != "drive" and source != "web" and source != "airtable":
                     filter_criteria = {"source": source}
                 
                 # Perform the search using the document processor
-                results = await document_processor.search_documents(
-                    query=query,
-                    n_results=3,
-                    filter_criteria=filter_criteria
-                )
-                
-                # Format the results as text
-                kb_results = document_processor.format_search_results(results)
-                if kb_results != "No results found.":
+                logger.info(f"Executing search_documents with query='{query}', n_results=3, filter_criteria={filter_criteria}")
+                try:
+                    results = await document_processor.search_documents(
+                        query=query,
+                        n_results=3,
+                        filter_criteria=filter_criteria
+                    )
+                    
+                    # Check if we got valid results back
+                    if not results:
+                        logger.warning(f"Empty results returned from search_documents for query '{query}'")
+                        kb_results = "No results found in the knowledge base."
+                    else:
+                        # Log the structure of results to help with debugging
+                        logger.debug(f"Results keys: {list(results.keys() if isinstance(results, dict) else [])}")
+                        if isinstance(results, dict) and "documents" in results:
+                            logger.debug(f"Results has {len(results['documents'])} document entries")
+                        
+                        # Format the results as text - this might fail if results are malformed
+                        kb_results = document_processor.format_search_results(results)
+                        if kb_results != "No results found.":
+                            combined_results.append("## Knowledge Base Results\n" + kb_results)
+                except Exception as search_format_error:
+                    logger.error(f"Error formatting search results: {search_format_error}")
+                    kb_results = f"Error formatting search results: {str(search_format_error)}"
                     combined_results.append("## Knowledge Base Results\n" + kb_results)
             except Exception as e:
-                logger.error(f"Error searching vector database: {e}")
-                kb_results = f"Error searching knowledge base: {str(e)}"
+                logger.error(f"Error executing vector database search: {e}", exc_info=True)
+                # More informative error message
+                if str(e) == "0":
+                    kb_results = "Error searching knowledge base: No results found or empty result set returned."
+                else:
+                    kb_results = f"Error searching knowledge base: {str(e)}"
                 combined_results.append("## Knowledge Base Results\n" + kb_results)
         
         # Then search Google Drive directly if it's available (commented out)
@@ -310,6 +365,30 @@ class ToolExecution:
                 logger.error(f"Error searching web content: {e}")
                 web_results = f"Error searching web content: {str(e)}"
                 combined_results.append("## Web Content Results\n" + web_results)
+        
+        # Search Airtable if it's available
+        airtable_results = "No results found in Airtable."
+        if (source == "all" or source == "airtable"):
+            try:
+                # Try to import and initialize if needed
+                if not airtable_manager:
+                    try:
+                        from services.knowledge.datasources.airtable_manager import AirtableManager
+                        airtable_manager = AirtableManager(document_processor=document_processor)
+                    except Exception as e:
+                        logger.error(f"Error initializing Airtable manager: {e}")
+                        airtable_results = f"Error initializing Airtable manager: {str(e)}"
+                        combined_results.append("## Airtable Results\n" + airtable_results)
+                        
+                # Search Airtable specifically if manager exists
+                if airtable_manager:
+                    airtable_results = await airtable_manager.search_airtable_records(query, None, 3)
+                    if airtable_results and "No Airtable records found" not in airtable_results:
+                        combined_results.append(airtable_results)  # Already has ## Airtable Search Results header
+            except Exception as e:
+                logger.error(f"Error searching Airtable: {e}")
+                airtable_results = f"Error searching Airtable: {str(e)}"
+                combined_results.append("## Airtable Results\n" + airtable_results)
         
         # If no results at all
         if not combined_results:
@@ -420,12 +499,55 @@ class ToolExecution:
             return f"Error fetching document {document_id}: {str(e)}"
     
     @staticmethod
+    async def execute_airtable_search(
+        query: str,
+        table_name: Optional[str] = None,
+        airtable_manager=None,
+        document_processor=None
+    ) -> str:
+        """
+        Execute a search in Airtable.
+        
+        Args:
+            query: The search query
+            table_name: Optional specific table to search in
+            airtable_manager: AirtableManager instance (optional)
+            document_processor: Document processor instance (optional)
+            
+        Returns:
+            Search results as text
+        """
+        logger.info(f"Executing Airtable search for '{query}' in table '{table_name if table_name else 'all'}'")
+        
+        if not airtable_manager:
+            # Try to import and initialize if needed
+            try:
+                from services.knowledge.datasources.airtable_manager import AirtableManager
+                airtable_manager = AirtableManager(document_processor=document_processor)
+            except Exception as e:
+                logger.error(f"Error initializing Airtable manager: {e}")
+                return f"Error: Unable to initialize Airtable manager: {str(e)}"
+        
+        try:
+            # Execute search using the manager
+            results = await airtable_manager.search_airtable_records(
+                query=query,
+                table_name=table_name,
+                n_results=5
+            )
+            return results
+        except Exception as e:
+            logger.error(f"Error executing Airtable search: {e}")
+            return f"Error executing Airtable search: {str(e)}"
+    
+    @staticmethod
     async def execute_tool(
         tool_name: str, 
         parameters: Dict[str, Any], 
         document_processor=None,
         gdrive_mcp=None,
-        web_content_manager=None
+        web_content_manager=None,
+        airtable_manager=None
     ) -> str:
         """
         Execute a tool based on name and parameters.
@@ -435,6 +557,8 @@ class ToolExecution:
             parameters: Dictionary of parameters for the tool
             document_processor: Document processor instance (optional)
             gdrive_mcp: Google Drive MCP instance (optional)
+            web_content_manager: Web content manager instance (optional)
+            airtable_manager: Airtable manager instance (optional)
             
         Returns:
             str: The result of the tool execution
@@ -464,6 +588,12 @@ class ToolExecution:
                 # Create web content manager if needed
                 web_content_manager = WebContentManager(document_processor=document_processor)
                 return await execute_web_tool(tool_name, parameters, web_content_manager)
+            
+            # Handle Airtable tools
+            elif tool_name == "airtable_search":
+                query = parameters.get("query", "")
+                table_name = parameters.get("table_name", None)
+                return await ToolExecution.execute_airtable_search(query, table_name, airtable_manager, document_processor)
             
             else:
                 return f"Unknown tool: {tool_name}"
@@ -508,7 +638,8 @@ async def claude_mcp_request(
     enable_tool_use: bool = False,
     document_processor=None,
     gdrive_mcp=None,
-    web_content_manager=None
+    web_content_manager=None,
+    airtable_manager=None
 ) -> Dict[str, Any]:
     """
     Make a request to Claude using the MCP protocol with optional tools.
@@ -520,6 +651,8 @@ async def claude_mcp_request(
         enable_tool_use: Whether to allow Claude to use tools
         document_processor: Document processor instance (optional)
         gdrive_mcp: Google Drive MCP instance (optional)
+        web_content_manager: Web content manager instance (optional)
+        airtable_manager: Airtable manager instance (optional)
         
     Returns:
         Claude's response including any tool calls
@@ -527,7 +660,20 @@ async def claude_mcp_request(
     formatter = ClaudeMCPRequestFormatter()
     
     # Build the messages array with conversation history
-    messages = conversation_history or []
+    messages = []
+    system_message = None
+    
+    # Process conversation history to handle system messages correctly
+    if conversation_history:
+        for msg in conversation_history:
+            if msg.get("role") == "system":
+                # Store the most recent system message
+                system_message = msg.get("content", "")
+            else:
+                # Keep non-system messages
+                messages.append(msg)
+    
+    # Add the current user message
     messages.append(formatter.format_user_message(user_message))
     
     # Use default tools if none specified
@@ -537,6 +683,7 @@ async def claude_mcp_request(
         # Create request to Claude
         request_data = formatter.format_full_request(
             messages=messages,
+            system=system_message if system_message else SYSTEM_PROMPT,
             tools=tools_to_use,
             model="claude-3-5-sonnet-20240620"
         )
@@ -577,7 +724,8 @@ async def claude_mcp_request(
                     tool_parameters,
                     document_processor,
                     gdrive_mcp,
-                    web_content_manager
+                    web_content_manager,
+                    airtable_manager
                 )
                 
                 # Add tool result to messages
@@ -595,6 +743,7 @@ async def claude_mcp_request(
             # Get final response from Claude with tool results
             final_request = formatter.format_full_request(
                 messages=messages,
+                system=system_message if system_message else SYSTEM_PROMPT,
                 tools=tools_to_use,
                 model="claude-3-5-sonnet-20240620"
             )

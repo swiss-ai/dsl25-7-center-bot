@@ -44,8 +44,9 @@ class MCPSlackClient:
         self.document_processor = None
         self.gdrive_manager = None
         self.web_content_manager = None
+        self.airtable_manager = None
         
-    async def connect_to_server(self, document_processor=None, gdrive_manager=None, web_content_manager=None):
+    async def connect_to_server(self, document_processor=None, gdrive_manager=None, web_content_manager=None, airtable_manager=None):
         """
         Connect to the MCP server.
         
@@ -53,11 +54,13 @@ class MCPSlackClient:
             document_processor: Document processor for knowledge base access
             gdrive_manager: Google Drive manager for file access
             web_content_manager: Web content manager for web access
+            airtable_manager: Airtable manager for Airtable access
         """
         # Store knowledge components for tool execution
         self.document_processor = document_processor
         self.gdrive_manager = gdrive_manager
         self.web_content_manager = web_content_manager
+        self.airtable_manager = airtable_manager
         
         # Start MCP server
         # First, create the server.py file in a temporary location
@@ -107,7 +110,7 @@ class MCPSlackClient:
     async def _create_mcp_server(self):
         """Return the path to the MCP server script."""
         # We now use a pre-created server script
-        script_dir = os.path.join(os.getcwd(),  "services", "slack", "mcp_server")
+        script_dir = os.path.join(os.getcwd(), "src", "services", "slack", "mcp_server")
         script_path = os.path.join(script_dir, "server.py")
         
         # Check if script exists
@@ -156,14 +159,23 @@ class MCPSlackClient:
             #print available tools
             print(f"Available tools: {[tool['name'] for tool in available_tools]}")
 
-            # Build message list
+            # Build message list with system message extraction
             messages = []
+            system_message = None
+            
             if conversation_history:
                 for msg in conversation_history:
-                    messages.append({
-                        "role": msg["role"],
-                        "content": msg["content"]
-                    })
+                    if msg["role"] == "system":
+                        # Extract system message
+                        system_message = msg["content"]
+                    else:
+                        # Keep non-system messages
+                        messages.append({
+                            "role": msg["role"],
+                            "content": msg["content"]
+                        })
+            
+            # Add the user prompt
             messages.append({
                 "role": "user",
                 "content": prompt
@@ -175,9 +187,11 @@ class MCPSlackClient:
             # Main tool-processing loop
             while True:
                 logger.info(" Sending message to Claude")
+                # Include the system message as a top-level parameter
                 response = await self.anthropic.messages.create(
                     model="claude-3-5-sonnet-20240620",
                     max_tokens=4000,
+                    system=system_message if system_message else prompt.split("\n")[0], # Use first line as fallback
                     messages=messages,
                     tools=available_tools
                 )

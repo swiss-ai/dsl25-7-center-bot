@@ -115,7 +115,7 @@ class DocumentProcessor:
         self, 
         content: str, 
         metadata: Dict[str, Any],
-        chunk_size: int = 5,
+        chunk_size: int = 500,
         chunk_overlap: int = 50
     ) -> Tuple[List[str], List[Dict[str, Any]]]:
         """
@@ -186,9 +186,34 @@ class DocumentProcessor:
         Returns:
             Dictionary containing search results
         """
-        print("search inside document processor")
+        print(f"search_documents: query='{query}', n_results={n_results}, filter_criteria={filter_criteria}")
         try:
+            logger.info(f"Starting vector_db search with query='{query}', n_results={n_results}")
+            
+            # Check if vector_db is properly initialized
+            if not self.vector_db or not hasattr(self.vector_db, 'search'):
+                logger.error("Vector DB not properly initialized")
+                return {"documents": [[]], "metadatas": [[]], "ids": [[]], "distances": [[]]}
+            
             # Use the vector_db search directly (not async)
+            # Try with full_documents=False first for diagnostics
+            initial_results = self.vector_db.search(
+                query=query,
+                n_results=n_results,
+                filter_criteria=filter_criteria, 
+                return_full_documents=False
+            )
+            
+            # Log initial search results
+            doc_count = len(initial_results.get("documents", [[]])[0])
+            logger.info(f"Initial search found {doc_count} results for query: '{query}'")
+            
+            if doc_count == 0:
+                logger.warning(f"No results found for query: '{query}'")
+                # Return empty results rather than trying full document recovery
+                return initial_results
+            
+            # Now do the full document recovery if we have results
             results = self.vector_db.search(
                 query=query,
                 n_results=n_results,
@@ -196,10 +221,13 @@ class DocumentProcessor:
                 return_full_documents=True
             )
             
+            logger.info(f"Full document recovery completed successfully")
             return results
+            
         except Exception as e:
-            logger.error(f"Error searching documents: {e}")
-            raise e
+            logger.error(f"Error searching documents: {e}", exc_info=True)
+            # Return empty results instead of raising exception
+            return {"documents": [[]], "metadatas": [[]], "ids": [[]], "distances": [[]]}
     
     def format_search_results(self, results: Dict[str, Any]) -> str:
         """
@@ -211,31 +239,81 @@ class DocumentProcessor:
         Returns:
             Formatted search results
         """
-        if not results or not results.get("documents") or not results["documents"][0]:
+        logger.info(f"Formatting search results: type={type(results)}")
+        
+        # Comprehensive validation of results structure
+        if not results:
+            logger.warning("Empty results object provided")
+            return "No results found."
+            
+        # Handle the case where results is a dict with full_documents format
+        if isinstance(results, dict) and "documents" in results:
+            if isinstance(results["documents"], dict):
+                # This is the return_full_documents=True format
+                logger.info("Processing full documents format")
+                if not results["documents"]:
+                    return "No results found."
+                    
+                output = []
+                for file_id, full_text in results["documents"].items():
+                    title = file_id
+                    source = "Knowledge Base"
+                    
+                    # Truncate the text for display
+                    snippet = full_text[:200] + "..." if len(full_text) > 200 else full_text
+                    
+                    result = f"Result: {title} (Source: {source})\n{snippet}"
+                    output.append(result)
+                
+                return "\n\n".join(output)
+        
+        # Standard format checking (documents as lists of lists)
+        if not results.get("documents"):
+            logger.warning("Missing 'documents' key in results")
+            return "No results found."
+            
+        if not results["documents"][0]:
+            logger.warning("Empty documents list in results")
             return "No results found."
         
-        documents = results["documents"][0]
-        metadatas = results["metadatas"][0]
-        distances = results["distances"][0] if "distances" in results else None
-        
-        output = []
-        
-        for i, (doc, meta) in enumerate(zip(documents, metadatas)):
-            source = meta.get("source", "Unknown")
-            title = meta.get("title", "Untitled")
-            score = distances[i] if distances else None
+        try:
+            documents = results["documents"][0]
+            metadatas = results.get("metadatas", [[]])[0]
+            distances = results.get("distances", [[]])[0] if "distances" in results else None
             
-            result = f"Result {i+1}: {title} (Source: {source})"
-            if score is not None:
-                result += f" [Score: {score:.4f}]"
+            output = []
             
-            if meta.get("url"):
-                result += f"\nURL: {meta['url']}"
+            # Check if documents and metadatas have same length
+            if len(documents) != len(metadatas):
+                logger.warning(f"Length mismatch: documents={len(documents)}, metadatas={len(metadatas)}")
+                # Fix by truncating the longer one or padding the shorter one
+                min_len = min(len(documents), len(metadatas))
+                documents = documents[:min_len]
+                metadatas = metadatas[:min_len]
+            
+            for i, (doc, meta) in enumerate(zip(documents, metadatas)):
+                # Safely extract metadata
+                source = meta.get("source", "Unknown") if isinstance(meta, dict) else "Unknown"
+                title = meta.get("title", "Untitled") if isinstance(meta, dict) else "Untitled"
+                score = distances[i] if distances and i < len(distances) else None
                 
-            result += f"\n{doc[:200]}..."
-            output.append(result)
-        
-        return "\n\n".join(output)
+                result = f"Result {i+1}: {title} (Source: {source})"
+                if score is not None:
+                    result += f" [Score: {score:.4f}]"
+                
+                if isinstance(meta, dict) and meta.get("url"):
+                    result += f"\nURL: {meta['url']}"
+                
+                # Safely extract document text
+                doc_text = doc[:200] + "..." if isinstance(doc, str) and len(doc) > 200 else str(doc)
+                result += f"\n{doc_text}"
+                output.append(result)
+            
+            return "\n\n".join(output)
+            
+        except Exception as e:
+            logger.error(f"Error formatting search results: {e}", exc_info=True)
+            return f"Error formatting results: {str(e)}"
     
     def fetch_document_by_id(self, file_id: str) -> Optional[Dict[str, Any]]:
         """

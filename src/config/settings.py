@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     
     # Web Content Integration
     WEB_CONTENT_ENABLED: bool = os.getenv("WEB_CONTENT_ENABLED", "false").lower() in ("true", "1", "t")
-    WEB_CONTENT_URLS_FILE: str = os.getenv("WEB_CONTENT_URLS_FILE", "web_content_urls.txt")
+    WEB_CONTENT_URLS_FILE: str = os.getenv("WEB_CONTENT_URLS_FILE", "/home/dsl25-7-center-bot/web_content_urls.txt")
     WEB_CONTENT_SYNC_INTERVAL: int = int(os.getenv("WEB_CONTENT_SYNC_INTERVAL", "86400"))  # Default: once per day in seconds
     
     # Firecrawl Integration
@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     NOTION_ENABLED: bool = os.getenv("NOTION_ENABLED", "false").lower() in ("true", "1", "t")
     NOTION_API_KEY: str = os.getenv("NOTION_API_KEY", "")
     NOTION_PAGES: str = os.getenv("NOTION_PAGES", "")  # Comma-separated list of page IDs
+    
+    # Airtable Integration
+    AIRTABLE_ENABLED: bool = os.getenv("AIRTABLE_ENABLED", "false").lower() in ("true", "1", "t")
+    AIRTABLE_API_KEY: str = os.getenv("AIRTABLE_API_KEY", "")
+    AIRTABLE_BASE_ID: str = os.getenv("AIRTABLE_BASE_ID", "")
+    AIRTABLE_TABLES: str = os.getenv("AIRTABLE_TABLES", "")  # Comma-separated list of table names to include
 
 settings = Settings()
 

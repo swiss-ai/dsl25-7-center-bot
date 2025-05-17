@@ -4,6 +4,7 @@ from .web_fetch import WebFetchManager
 from .gdrive import GoogleDriveManager, GoogleDriveMCP
 from .mcp_gdrive import MCPGDriveManager
 from .notion_manager import NotionManager
+from .airtable_manager import AirtableManager
 
 __all__ = [
     'FirecrawlManager',
@@ -12,5 +13,6 @@ __all__ = [
     'GoogleDriveManager',
     'GoogleDriveMCP',
     'MCPGDriveManager',
-    'NotionManager'
+    'NotionManager',
+    'AirtableManager'
 ]

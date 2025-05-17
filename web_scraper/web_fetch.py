@@ -112,12 +112,6 @@ class WebFetcher:
     async def fetch_publications(self, url: str) -> List[Dict[str, Any]]:
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        # Use a unique temporary directory for user data to avoid conflicts
-        import tempfile
-        temp_dir = tempfile.mkdtemp(prefix='chrome_')
-        options.add_argument(f'--user-data-dir={temp_dir}')
         driver = webdriver.Chrome(options=options)
         publications = []
         
@@ -160,16 +154,13 @@ class WebFetcher:
         
         except Exception as e:
             logger.error(f"Error fetching URL {url}: {e}")
-            return []
+            return {
+                "status": "error",
+                "error": str(e)
+            }
 
         finally:
             driver.quit()
-            # Clean up the temporary directory
-            try:
-                import shutil
-                shutil.rmtree(temp_dir)
-            except Exception as cleanup_error:
-                logger.warning(f"Failed to clean up temp directory {temp_dir}: {cleanup_error}")
 
 
     def _html_to_markdown(self, html: str, url: str) -> str:
