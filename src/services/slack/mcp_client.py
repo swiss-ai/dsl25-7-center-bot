@@ -110,16 +110,18 @@ class MCPSlackClient:
     async def _create_mcp_server(self):
         """Return the path to the MCP server script."""
         # We now use a pre-created server script
-        script_dir = os.path.join(os.getcwd(), "src", "services", "slack", "mcp_server")
+        base = os.path.dirname(__file__)                 # .../services/slack
+        script_dir = os.path.join(base, "mcp_server")    # .../services/slack/mcp_server
         script_path = os.path.join(script_dir, "server.py")
         
         # Check if script exists
         if not os.path.exists(script_path):
-            logger.error(f"Server script not found at {script_path}")
+            logger.error(f"MCP server script not found at {script_path}")
             raise FileNotFoundError(f"MCP server script not found at {script_path}")
             
         logger.info(f"Using MCP server script at {script_path}")
         return script_path
+
     
     async def process_query(
     self,

@@ -593,7 +593,7 @@ async def handle_request():
                                             "content": f"Fetched and processed content from {url}.",
                                             "source": source_info
                                         },
-                                        "message": f"Document fetched and stored in the knowledge base with ID: {fetch_result.get("doc_id", "")}"
+                                        "message": f"Document fetched and stored in the knowledge base with ID: {fetch_result.get('doc_id', '')}"
                                     }
 
 
@@ -744,7 +744,16 @@ async def handle_request():
                             "message": f"Error executing tool {tool_name}: {str(e)}"
                         }
                     }
-            
+            # ─── CATCH NOTIFICATIONS ───────────────────────────
+            elif method.startswith("notifications/"):
+                # just acknowledge it, no action needed
+                response = {
+                  "jsonrpc": "2.0",
+                  "id": request_id,
+                  "result": {}
+                }
+                logger.debug(f"Ignored notification: {method}")
+                
             else:
                 # Unknown method
                 response = {

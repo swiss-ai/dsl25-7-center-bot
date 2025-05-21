@@ -52,3 +52,9 @@ python-dateutil>=2.8.2
 # PDF processing
 pypdf>=3.16.2
 markdown>=3.4.4
+
+# Gmail
+talon>=0.0.1  # Gmail API
+
+# Web scraping
+selenium>=4.25.0

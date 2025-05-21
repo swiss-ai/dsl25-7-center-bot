@@ -783,3 +783,26 @@ async def get_claude_response_text(response: Dict[str, Any]) -> str:
     except Exception as e:
         logger.error(f"Error extracting text from Claude response: {e}")
         return "Sorry, I encountered an error processing the response."
+    
+
+async def ask_claude_with_tools(
+    prompt: str,
+    *,
+    document_processor=None,
+    gdrive_manager=None,          # pass the real Google-Drive manager (or None)
+    web_content_manager=None,     # pass the real Web-content manager (or None)
+    history: Optional[list] = None
+) -> str:
+    """
+    Fire a single-shot request to Claude with tool-use enabled
+    and return plain-text answer.
+    """
+    response = await claude_mcp_request(
+        user_message=prompt,
+        conversation_history=history or [],
+        enable_tool_use=True,                      # <- let Claude call tools
+        document_processor=document_processor,
+        gdrive_mcp=gdrive_manager,                 # same arg name as before
+        web_content_manager=web_content_manager
+    )
+    return await get_claude_response_text(response)

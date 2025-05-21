@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     AIRTABLE_BASE_ID: str = os.getenv("AIRTABLE_BASE_ID", "")
     AIRTABLE_TABLES: str = os.getenv("AIRTABLE_TABLES", "")  # Comma-separated list of table names to include
 
+    # Email Integration
+    GMAIL_ENABLED: bool = os.getenv("GMAIL_ENABLED", "false").lower() in ("true", "1", "t")
+    GMAIL_CREDENTIALS_PATH: Optional[str] = os.getenv("GOOGLE_CREDENTIALS_PATH")
+    GMAIL_TOKEN_PATH: Optional[str]       = os.getenv("GMAIL_TOKEN_PATH")
+    GMAIL_STATE_PATH: str                 = os.getenv("GMAIL_STATE_PATH", "last_history_id.txt")
+    GMAIL_POLL_INTERVAL: int              = int(os.getenv("GMAIL_POLL_INTERVAL", "10"))
+
 settings = Settings()
 
 # Validate critical settings

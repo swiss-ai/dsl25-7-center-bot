@@ -15,6 +15,7 @@ from middleware.rate_limit import RateLimiter
 from services.knowledge.document_processor import DocumentProcessor
 from services.knowledge.datasources import GoogleDriveManager, GoogleDriveMCP
 from services.slack.mcp_bot import initialize_mcp_client, start_socket_mode
+from services.email.poller import run_email_poller
 
 # Configure logging
 logging.basicConfig(
@@ -581,6 +582,27 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error setting up MCP Slack integration: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
+
+
+         # ─── Start the Gmail auto-responder ────────────────────────────────
+    try:
+        if settings.GMAIL_ENABLED:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, run_email_poller)
+            logger.info("📧 Gmail auto-responder poller started")
+
+    except Exception as e:
+        logger.error(f"Failed to launch Gmail poller: {e}")
+
+        # ─── Launch Gmail auto-responder AFTER everything is ready ──
+    
+        asyncio.get_running_loop().run_in_executor(
+            None,               # default ThreadPool (to keep poller blocking)
+            run_email_poller
+        )
+        logger.info("📧 Gmail auto-responder poller started")
+    
+    
     
     # Include knowledge routes after document_processor is initialized
     from api.knowledge_routes import router as knowledge_router
