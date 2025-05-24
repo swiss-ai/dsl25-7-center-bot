@@ -5,7 +5,7 @@ The goal is to build an agent which facilitates workflows/tasks people carry out
 
 ---
 
-## Directory Structure
+# Directory Structure
 
 - `config/` - Configuration files, credentials, and environment settings
 - `db/` - Database files including SQLite and ChromaDB vector store
@@ -17,7 +17,7 @@ The goal is to build an agent which facilitates workflows/tasks people carry out
 
 ---
 
-## 🌐 Data Source Integrations
+# 🌐 Data Source Integrations
 
 - **Airtable**: Structured project or research metadata
 - **Notion**: Content from Notion Pages
