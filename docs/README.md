@@ -1,7 +1,7 @@
 # 🤖 ETH AI Center Chatbot
 
 Under the Swiss AI Initiative, this project implements a ChatBot integrated to Slack.
-The goal is to facilitate the life of people working at the ETH AI Center.
+The goal is to build an agent which facilitate workflows/tasks people carry out at the ETH AI Center.
 
 ---
 
