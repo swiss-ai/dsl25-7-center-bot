@@ -1,7 +1,7 @@
 # 🤖 ETH AI Center Chatbot
 
 Under the Swiss AI Initiative, this project implements a ChatBot integrated to Slack.
-The goal is to build an agent which facilitate workflows/tasks people carry out at the ETH AI Center.
+The goal is to build an agent which facilitates workflows/tasks people carry out at the ETH AI Center.
 
 ---
 
@@ -20,9 +20,9 @@ The goal is to build an agent which facilitate workflows/tasks people carry out 
 ## 🌐 Data Source Integrations
 
 - **Airtable**: Structured project or research metadata
-- **Notion**: Personal or institutional pages and databases
-- **Google Drive**: Syncs and indexes files from shared drives or folders
-- **Web Scraping**: Crawls and extracts content from predefined URLs
+- **Notion**: Content from Notion Pages
+- **Google Drive**: Files (PDF, WORD, etc..) from shared drives or folders
+- **Web Scraping**: Content from predefined URLs
 - **Slack**: Previous messages in a channel
 
 ---
@@ -75,7 +75,7 @@ Here are a few examples where we used this protocol in the codebase:
 TODO
 
 ---
-# Axis of future improvements:
+# 🚀 Future Improvement Directions:
 
 - Build profiles of ETH fellows (scraping more web sources)
 - Build a reward model to align LLM answers with users' preferences (RHLF)
