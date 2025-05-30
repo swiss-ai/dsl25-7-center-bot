@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  slack-bot:
+    build: 
+      context: .
+      dockerfile: Dockerfile.minimal
+    container_name: slack-knowledge-bot
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - chromadb
+      - redis
+    networks:
+      - slack-bot-network
+    restart: unless-stopped
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: slack-bot-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - slack-bot-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: slack-bot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - slack-bot-network
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  chroma-data:
+
+networks:
+  slack-bot-network:
+    driver: bridge

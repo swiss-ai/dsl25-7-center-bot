@@ -1,0 +1,52 @@
+# Notion Knowledge Source Configuration
+name: notion
+enabled: true
+description: "Indexes and searches Notion pages and databases"
+
+# Authentication
+auth:
+  api_token: "${NOTION_API_TOKEN}"
+  version: "2022-06-28"
+
+# Source configuration
+source:
+  # Workspace IDs to index (leave empty for all accessible workspaces)
+  workspace_ids: []
+  # Database IDs to specifically include
+  database_ids: []
+  # Page IDs to specifically include
+  page_ids: []
+  # Include archived pages
+  include_archived: false
+  # Include child pages
+  include_children: true
+  # Maximum depth for child pages
+  max_depth: 5
+
+# Indexing configuration
+indexing:
+  # How often to sync in minutes
+  sync_interval: 30
+  # Batch size for API requests
+  batch_size: 100
+  # Rate limit (requests per second)
+  rate_limit: 3
+  # Extract properties from databases
+  extract_properties: true
+  # Index comments
+  index_comments: true
+  # Index page history
+  index_history: false
+
+# Search configuration
+search:
+  # Maximum results to return
+  max_results: 10
+  # Search in page titles
+  search_titles: true
+  # Search in page content
+  search_content: true
+  # Search in database properties
+  search_properties: true
+  # Include database schema in results
+  include_schema: false

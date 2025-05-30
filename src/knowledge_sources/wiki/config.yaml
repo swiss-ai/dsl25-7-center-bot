@@ -1,0 +1,94 @@
+# Wiki Knowledge Source Configuration
+name: wiki
+enabled: true
+description: "Indexes and searches wiki content from various platforms"
+
+# Wiki platforms
+platforms:
+  confluence:
+    enabled: true
+    auth:
+      base_url: "${CONFLUENCE_BASE_URL}"
+      username: "${CONFLUENCE_USERNAME}"
+      api_token: "${CONFLUENCE_API_TOKEN}"
+    # Spaces to index (leave empty for all)
+    spaces: []
+    # Include archived pages
+    include_archived: false
+    # Include drafts
+    include_drafts: false
+    # Include personal spaces
+    include_personal: false
+  
+  mediawiki:
+    enabled: false
+    auth:
+      api_url: "${MEDIAWIKI_API_URL}"
+      username: "${MEDIAWIKI_USERNAME}"
+      password: "${MEDIAWIKI_PASSWORD}"
+    # Namespaces to index
+    namespaces:
+      - 0  # Main namespace
+      - 4  # Project namespace
+    # Categories to include
+    categories: []
+  
+  github_wiki:
+    enabled: false
+    auth:
+      token: "${GITHUB_TOKEN}"
+    # Repositories to index (owner/repo format)
+    repositories: []
+
+# Source configuration
+source:
+  # Page types to include
+  page_types:
+    - "page"
+    - "blogpost"
+  # Maximum page size in KB
+  max_page_size: 5000
+  # Include page comments
+  include_comments: true
+  # Include page attachments
+  include_attachments: true
+  # Include page history
+  include_history: false
+  # Exclude patterns (regex)
+  exclude_patterns:
+    - ".*Template.*"
+    - ".*Archive.*"
+
+# Indexing configuration
+indexing:
+  # How often to sync in minutes
+  sync_interval: 60
+  # Batch size for API requests
+  batch_size: 50
+  # Rate limit (requests per second)
+  rate_limit: 5
+  # Extract tables
+  extract_tables: true
+  # Extract code blocks
+  extract_code: true
+  # Extract links
+  extract_links: true
+  # Process macros
+  process_macros: true
+
+# Search configuration
+search:
+  # Maximum results to return
+  max_results: 10
+  # Search in page titles
+  search_titles: true
+  # Search in page content
+  search_content: true
+  # Search in comments
+  search_comments: false
+  # Include page metadata
+  include_metadata: true
+  # Highlight search terms
+  highlight_terms: true
+  # Snippet length
+  snippet_length: 300

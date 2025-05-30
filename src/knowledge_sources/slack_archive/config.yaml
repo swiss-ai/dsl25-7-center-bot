@@ -1,0 +1,115 @@
+# Slack Archive Knowledge Source Configuration
+name: slack_archive
+enabled: true
+description: "Indexes and searches archived Slack messages and channels"
+
+# Authentication
+auth:
+  # Bot token for accessing Slack API
+  bot_token: "${SLACK_BOT_TOKEN}"
+  # User token for accessing private channels (optional)
+  user_token: "${SLACK_USER_TOKEN}"
+  # App-level token for socket mode (if needed)
+  app_token: "${SLACK_APP_TOKEN}"
+
+# Source configuration
+source:
+  # Workspace ID (optional, auto-detected if not provided)
+  workspace_id: ""
+  # Channels to archive
+  channels:
+    # Public channels to include (leave empty for all)
+    public: []
+    # Private channels to include (requires user token)
+    private: []
+    # Direct messages to include
+    direct_messages: false
+    # Group messages to include
+    group_messages: false
+  # Exclude channels (regex patterns)
+  exclude_patterns:
+    - ".*-test$"
+    - ".*-dev$"
+    - ".*-archive$"
+  # Include archived channels
+  include_archived_channels: false
+  # Time range for messages
+  time_range:
+    # Past messages (days, 0 for all)
+    past_days: 0
+    # Start date (ISO format, optional)
+    start_date: ""
+    # End date (ISO format, optional)
+    end_date: ""
+
+# Message configuration
+messages:
+  # Include thread replies
+  include_threads: true
+  # Include reactions
+  include_reactions: true
+  # Include attachments
+  include_attachments: true
+  # Include file uploads
+  include_files: true
+  # Include bot messages
+  include_bots: false
+  # Include system messages
+  include_system: false
+  # Minimum message length
+  min_length: 10
+
+# Indexing configuration
+indexing:
+  # How often to sync in minutes
+  sync_interval: 60
+  # Batch size for API requests
+  batch_size: 200
+  # Rate limit (requests per minute)
+  rate_limit: 50
+  # Store user profiles
+  store_profiles: true
+  # Store channel info
+  store_channel_info: true
+  # Extract mentions
+  extract_mentions: true
+  # Extract links
+  extract_links: true
+  # Extract code blocks
+  extract_code: true
+  # Process emoji
+  process_emoji: true
+
+# Storage configuration
+storage:
+  # Archive format
+  format: "json"  # json, csv, or parquet
+  # Compression
+  compression: "gzip"
+  # Storage path
+  path: "data/slack_archive"
+  # Partition by
+  partition_by: "channel"  # channel, date, or none
+  # Retention days (0 for infinite)
+  retention_days: 0
+
+# Search configuration
+search:
+  # Maximum results to return
+  max_results: 10
+  # Search in message text
+  search_text: true
+  # Search in usernames
+  search_users: true
+  # Search in channel names
+  search_channels: true
+  # Search in thread replies
+  search_threads: true
+  # Include context messages
+  include_context: true
+  # Context size (messages before/after)
+  context_size: 2
+  # Highlight search terms
+  highlight_terms: true
+  # Group by thread
+  group_by_thread: true

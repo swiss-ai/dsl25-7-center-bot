@@ -1,0 +1,83 @@
+# Calendar Knowledge Source Configuration
+name: calendar
+enabled: true
+description: "Indexes and searches calendar events from various providers"
+
+# Calendar providers
+providers:
+  google:
+    enabled: true
+    auth:
+      credentials_path: "credentials/google_calendar_credentials.json"
+      token_path: "credentials/google_calendar_token.json"
+      scopes:
+        - "https://www.googleapis.com/auth/calendar.readonly"
+    # Calendar IDs to include (leave empty for all)
+    calendar_ids: []
+    # Include shared calendars
+    include_shared: true
+  
+  outlook:
+    enabled: false
+    auth:
+      client_id: "${OUTLOOK_CLIENT_ID}"
+      client_secret: "${OUTLOOK_CLIENT_SECRET}"
+      tenant_id: "${OUTLOOK_TENANT_ID}"
+    # Calendar IDs to include
+    calendar_ids: []
+  
+  ical:
+    enabled: false
+    # iCal URLs to sync
+    urls: []
+    # Update interval in minutes
+    update_interval: 60
+
+# Source configuration
+source:
+  # Time range for events
+  time_range:
+    # Past events (days)
+    past_days: 30
+    # Future events (days)
+    future_days: 90
+  # Include recurring events
+  include_recurring: true
+  # Include cancelled events
+  include_cancelled: false
+  # Include tentative events
+  include_tentative: true
+  # Include private events
+  include_private: false
+
+# Indexing configuration
+indexing:
+  # How often to sync in minutes
+  sync_interval: 15
+  # Batch size for indexing
+  batch_size: 100
+  # Extract attendees
+  extract_attendees: true
+  # Extract location
+  extract_location: true
+  # Extract conference links
+  extract_conference: true
+  # Index event descriptions
+  index_descriptions: true
+
+# Search configuration
+search:
+  # Maximum results to return
+  max_results: 10
+  # Search in event titles
+  search_titles: true
+  # Search in event descriptions
+  search_descriptions: true
+  # Search in attendee names
+  search_attendees: true
+  # Search in locations
+  search_locations: true
+  # Date range filtering
+  enable_date_filter: true
+  # Group by date
+  group_by_date: true

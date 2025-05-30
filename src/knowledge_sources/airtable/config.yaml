@@ -1,0 +1,63 @@
+# Airtable Knowledge Source Configuration
+name: airtable
+enabled: true
+description: "Indexes and searches Airtable bases and tables"
+
+# Authentication
+auth:
+  api_key: "${AIRTABLE_API_KEY}"
+  # Or use personal access token
+  # access_token: "${AIRTABLE_ACCESS_TOKEN}"
+
+# Source configuration
+source:
+  # Base IDs to index
+  base_ids: []
+  # Specific tables to include (base_id: [table_names])
+  tables: {}
+  # Views to include (table_id: [view_names])
+  views: {}
+  # Include attachments
+  include_attachments: true
+  # Include linked records
+  follow_links: true
+  # Maximum link depth
+  max_link_depth: 2
+
+# Indexing configuration
+indexing:
+  # How often to sync in minutes
+  sync_interval: 45
+  # Batch size for API requests
+  batch_size: 100
+  # Page size for fetching records
+  page_size: 100
+  # Rate limit (requests per second)
+  rate_limit: 5
+  # Field types to index
+  indexed_field_types:
+    - "singleLineText"
+    - "multilineText"
+    - "richText"
+    - "email"
+    - "url"
+    - "phoneNumber"
+    - "singleSelect"
+    - "multipleSelects"
+    - "collaborator"
+    - "multipleCollaborators"
+  # Extract formula results
+  extract_formulas: true
+
+# Search configuration
+search:
+  # Maximum results to return
+  max_results: 10
+  # Search in all fields
+  search_all_fields: true
+  # Specific fields to prioritize
+  priority_fields: []
+  # Include record metadata
+  include_metadata: true
+  # Include computed fields
+  include_computed: false

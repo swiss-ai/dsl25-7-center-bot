@@ -1,0 +1,55 @@
+# Google Drive Knowledge Source Configuration
+name: google_drive
+enabled: true
+description: "Indexes and searches Google Drive documents"
+
+# Authentication
+auth:
+  credentials_path: "credentials/google_drive_credentials.json"
+  token_path: "credentials/google_drive_token.json"
+  scopes:
+    - "https://www.googleapis.com/auth/drive.readonly"
+    - "https://www.googleapis.com/auth/drive.metadata.readonly"
+
+# Source configuration
+source:
+  # Drive IDs or folder IDs to index
+  drive_ids: []
+  folder_ids: []
+  # File types to include
+  file_types:
+    - "application/vnd.google-apps.document"
+    - "application/vnd.google-apps.spreadsheet"
+    - "application/vnd.google-apps.presentation"
+    - "application/pdf"
+    - "text/plain"
+    - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    - "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  # Maximum file size in MB
+  max_file_size: 10
+  # Exclude patterns (regex)
+  exclude_patterns:
+    - ".*\\.tmp$"
+    - ".*~$"
+
+# Indexing configuration
+indexing:
+  # How often to sync in minutes
+  sync_interval: 60
+  # Batch size for indexing
+  batch_size: 50
+  # Maximum number of files to index per sync
+  max_files_per_sync: 1000
+  # Extract metadata
+  extract_metadata: true
+  # OCR for images
+  enable_ocr: false
+
+# Search configuration
+search:
+  # Maximum results to return
+  max_results: 10
+  # Include file content in results
+  include_content: true
+  # Content preview length
+  preview_length: 500

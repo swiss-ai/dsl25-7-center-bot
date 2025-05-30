@@ -1,0 +1,36 @@
+# Main application settings
+app:
+  name: "Slack Knowledge Bot"
+  version: "1.0.0"
+  environment: "development"
+  debug: true
+
+slack:
+  app_token: "${SLACK_APP_TOKEN}"
+  bot_token: "${SLACK_BOT_TOKEN}"
+  signing_secret: "${SLACK_SIGNING_SECRET}"
+  
+rate_limiting:
+  enabled: true
+  max_requests_per_minute: 60
+  max_requests_per_user: 20
+
+knowledge_sources:
+  enabled:
+    - google_drive
+    - notion
+    - airtable
+    - calendar
+    - wiki
+    - email
+    - web_scraper
+    - slack_archive
+
+vector_store:
+  provider: "chroma"
+  embedding_model: "text-embedding-ada-002"
+  
+claude:
+  api_key: "${CLAUDE_API_KEY}"
+  model: "claude-3-opus-20240229"
+  max_tokens: 4096

@@ -1,0 +1,4 @@
+# Add URLs here, one per line
+# Lines starting with # are comments
+https://ai.ethz.ch/research/publications.html
+https://ai.ethz.ch/

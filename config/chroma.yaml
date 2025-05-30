@@ -1,0 +1,57 @@
+# ChromaDB configuration
+chroma:
+  persist_directory: "./data/chroma"
+  anonymized_telemetry: false
+  
+collections:
+  google_drive:
+    name: "google_drive_docs"
+    metadata: 
+      source: "google_drive"
+      hnsw_space: "cosine"
+    
+  notion:
+    name: "notion_pages"
+    metadata:
+      source: "notion"
+      hnsw_space: "cosine"
+    
+  airtable:
+    name: "airtable_records"
+    metadata:
+      source: "airtable"
+      hnsw_space: "cosine"
+    
+  calendar:
+    name: "calendar_events"
+    metadata:
+      source: "calendar"
+      hnsw_space: "cosine"
+    
+  wiki:
+    name: "wiki_pages"
+    metadata:
+      source: "wiki"
+      hnsw_space: "cosine"
+    
+  email:
+    name: "email_content"
+    metadata:
+      source: "email"
+      hnsw_space: "cosine"
+    
+  web_scraper:
+    name: "web_content"
+    metadata:
+      source: "web"
+      hnsw_space: "cosine"
+    
+  slack_archive:
+    name: "slack_messages"
+    metadata:
+      source: "slack"
+      hnsw_space: "cosine"
+
+embedding:
+  model: "all-MiniLM-L6-v2"
+  dimension: 384

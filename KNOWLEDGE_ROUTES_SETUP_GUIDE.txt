@@ -1,0 +1,525 @@
+KNOWLEDGE ROUTES SETUP GUIDE - SLACK BOT IMPLEMENTATION
+========================================================
+
+This document details the implementation of knowledge routes for the Slack bot, covering both 
+Notion and Airtable integrations. Use this as a reference for adding new knowledge sources.
+
+TABLE OF CONTENTS
+-----------------
+1. Overview
+2. Architecture
+3. Notion Integration (Basic Implementation)
+4. Airtable Integration (Advanced with Direct Search)
+5. Core Components
+6. Step-by-Step Guide for New Knowledge Sources
+7. Key Learnings and Best Practices
+
+========================================================
+1. OVERVIEW
+========================================================
+
+The Slack bot uses a modular knowledge routing system that:
+- Integrates multiple data sources (Notion, Airtable, etc.)
+- Stores data in ChromaDB for vector similarity search
+- Provides RAG (Retrieval Augmented Generation) capabilities
+- Maintains conversation history
+- Cites sources with URLs
+- Supports both cached and real-time data retrieval
+
+Key Technologies:
+- ChromaDB: Vector database for embeddings
+- Sentence Transformers: For creating embeddings
+- APScheduler: For periodic syncs
+- Anthropic Claude: For generating responses
+
+========================================================
+2. ARCHITECTURE
+========================================================
+
+Directory Structure:
+```
+slack-bot/
+├── src/
+│   ├── knowledge_sources/          # Individual source implementations
+│   │   ├── notion/
+│   │   │   ├── connector.py       # ChromaDB integration
+│   │   │   ├── notion_scraper.py  # Data fetching logic
+│   │   │   └── v1/                # Original implementation files
+│   │   └── airtable/
+│   │       ├── connector.py       # ChromaDB + direct search
+│   │       ├── airtable_scraper.py
+│   │       └── v1/
+│   ├── knowledge/
+│   │   ├── sync_manager.py        # Manages periodic syncs
+│   │   ├── knowledge_retriever.py # Unified search interface
+│   │   └── claude_mcp.py          # Claude integration with RAG
+│   └── storage/
+│       └── chroma_client.py       # ChromaDB wrapper
+```
+
+Data Flow:
+1. Knowledge sources fetch data via scrapers
+2. Connectors process and store in ChromaDB with metadata
+3. Sync manager handles periodic updates
+4. Knowledge retriever searches across all sources
+5. Claude uses retrieved context to generate responses
+
+========================================================
+3. NOTION INTEGRATION (Basic Implementation)
+========================================================
+
+Files Created/Modified:
+- src/knowledge_sources/notion/connector.py
+- src/knowledge_sources/notion/notion_scraper.py (copied from v1/)
+- Config updates for NOTION_API_KEY and NOTION_PAGES
+
+Key Features:
+1. Recursive page scraping (including subpages)
+2. Multiple content type support (text, headings, lists, code, images)
+3. Document chunking for embeddings
+4. Metadata preservation for citations
+
+Implementation Details:
+
+a) Scraper (notion_scraper.py):
+   - Uses Notion API to fetch page content
+   - Recursively retrieves subpages
+   - Formats content as markdown-style documents
+   - Returns list of documents with metadata
+
+b) Connector (connector.py):
+   - Initializes ChromaDB collection "notion_pages"
+   - Generates unique document IDs using MD5 hash
+   - Enhances metadata with:
+     * Notion URLs (https://www.notion.so/{page_id})
+     * Timestamps
+     * Page titles
+   - Implements sync_notion_content() for updates
+   - Provides search() method for queries
+
+c) Metadata Structure:
+   {
+     "page_id": "xxx",
+     "page_title": "Page Name",
+     "notion_url": "https://...",
+     "source_type": "notion",
+     "indexed_at": "ISO timestamp"
+   }
+
+========================================================
+4. AIRTABLE INTEGRATION (Advanced with Direct Search)
+========================================================
+
+Files Created/Modified:
+- src/knowledge_sources/airtable/connector.py
+- src/knowledge_sources/airtable/airtable_scraper.py
+- Config updates for AIRTABLE_API_KEY and AIRTABLE_BASE_ID
+
+Advanced Features:
+1. Dual search modes (cached + live API)
+2. Intelligent deduplication
+3. Real-time data access
+4. Priority system for fresh data
+
+Implementation Details:
+
+a) Scraper (airtable_scraper.py):
+   - Fetches table lists and schemas
+   - Retrieves all records with pagination
+   - Formats records as structured documents
+   - Handles various field types
+
+b) Connector (connector.py):
+   THREE search methods:
+   
+   1. search() - Standard ChromaDB search
+   2. direct_search() - Live API search
+      - Queries Airtable API in real-time
+      - Searches through all fields
+      - Returns formatted results
+   
+   3. search_with_deduplication() - Combined approach
+      - Performs both cached and direct searches
+      - Compares record IDs to identify duplicates
+      - Marks duplicates in metadata
+      - Returns both result sets
+
+c) Metadata Structure:
+   {
+     "base_id": "xxx",
+     "table_id": "xxx", 
+     "table_name": "Courses",
+     "record_id": "recXXX",
+     "airtable_url": "https://airtable.com/{base}/{table}/{record}",
+     "source_type": "airtable",
+     "search_type": "direct" or "cached",
+     "is_duplicate": true/false (for direct results)
+   }
+
+d) Deduplication Logic:
+   - Direct search results checked against cached results
+   - Matching record_ids marked as duplicates
+   - Knowledge retriever prioritizes non-duplicate direct results
+   - Claude instructed to use live data over cached
+
+========================================================
+5. CORE COMPONENTS
+========================================================
+
+a) ChromaDB Client (storage/chroma_client.py):
+   - Persistent storage configuration
+   - Collection management
+   - Embedding function setup (all-MiniLM-L6-v2)
+
+b) Sync Manager (knowledge/sync_manager.py):
+   - Initializes all connectors
+   - Performs initial sync on startup
+   - Schedules hourly updates
+   - Provides manual sync capability
+   - Tracks sync status
+
+c) Knowledge Retriever (knowledge/knowledge_retriever.py):
+   - Unified search interface
+   - Searches multiple sources in parallel
+   - Formats results for Claude context
+   - Handles source-specific metadata
+   - Citation formatting with (Live Data) vs (Cached) indicators
+
+d) Claude Integration (knowledge/claude_mcp.py):
+   - Searches knowledge base for every query
+   - Adds results to system prompt
+   - Special instructions for handling duplicates
+   - Citation requirements
+
+========================================================
+6. STEP-BY-STEP GUIDE FOR NEW KNOWLEDGE SOURCES
+========================================================
+
+To add a new knowledge source (e.g., Google Drive):
+
+1. Create Directory Structure:
+   ```
+   src/knowledge_sources/google_drive/
+   ├── __init__.py
+   ├── connector.py
+   ├── google_drive_scraper.py
+   ├── config.yaml
+   └── v1/ (if importing existing code)
+   ```
+
+2. Implement Scraper:
+   ```python
+   # google_drive_scraper.py
+   class GoogleDriveScraper:
+       def __init__(self, credentials):
+           # Initialize API client
+           
+       def fetch_documents(self):
+           # Fetch data from API
+           
+       def format_for_embedding(self, data):
+           # Return list of:
+           # [{
+           #    "page_content": "text",
+           #    "metadata": {...}
+           # }]
+   ```
+
+3. Implement Connector:
+   ```python
+   # connector.py
+   class GoogleDriveConnector:
+       def __init__(self):
+           # Initialize ChromaDB collection
+           # Initialize scraper
+           
+       def sync_content(self):
+           # Fetch, process, store in ChromaDB
+           
+       def search(self, query, n_results=5):
+           # Search ChromaDB
+           
+       # Optional: Add direct_search() for real-time
+   ```
+
+4. Update Configuration:
+   - Add to src/utils/config.py:
+     ```python
+     GOOGLE_DRIVE_CLIENT_ID = os.getenv('GOOGLE_DRIVE_CLIENT_ID')
+     GOOGLE_DRIVE_CLIENT_SECRET = os.getenv('GOOGLE_DRIVE_CLIENT_SECRET')
+     ```
+   - Update .env file
+
+5. Integrate with Sync Manager:
+   - Import connector in sync_manager.py
+   - Add to __init__:
+     ```python
+     self.google_drive_connector = GoogleDriveConnector()
+     ```
+   - Add sync method:
+     ```python
+     async def sync_google_drive(self):
+         # Implementation
+     ```
+   - Add to initial_sync() and start_periodic_sync()
+
+6. Update Knowledge Retriever:
+   - Import connector
+   - Add to __init__
+   - Add search logic in search() method
+   - Update format_search_results_for_context() for metadata
+
+7. Create Test Script:
+   ```python
+   # scripts/test_google_drive_sync.py
+   # Test sync and search functionality
+   ```
+
+========================================================
+7. KEY LEARNINGS AND BEST PRACTICES
+========================================================
+
+1. Metadata is Critical:
+   - Always include source URLs for citations
+   - Add timestamps for data freshness
+   - Include unique identifiers for deduplication
+   - Preserve hierarchy (page/subpage, table/record)
+
+2. Modular Design:
+   - Separate scraping logic from storage logic
+   - Use consistent interfaces across connectors
+   - Make components independently testable
+
+3. Error Handling:
+   - Log errors at each level
+   - Provide fallback responses
+   - Don't let one source failure break others
+
+4. Performance Considerations:
+   - Chunk large documents appropriately
+   - Use pagination for API calls
+   - Implement rate limiting if needed
+   - Consider caching vs real-time tradeoffs
+
+5. Citation Requirements:
+   - Every result needs a traceable source
+   - URLs should be clickable and valid
+   - Indicate data freshness (cached vs live)
+   - Format consistently across sources
+
+6. Deduplication Strategy:
+   - Use unique identifiers (not content)
+   - Prioritize fresh over cached
+   - Mark duplicates clearly
+   - Let Claude handle final deduplication
+
+7. Testing:
+   - Test each component independently
+   - Verify metadata preservation
+   - Check citation accuracy
+   - Test edge cases (empty results, errors)
+
+8. Configuration:
+   - Use environment variables for credentials
+   - Provide sensible defaults
+   - Make sync intervals configurable
+   - Allow enabling/disabling sources
+
+========================================================
+COMMON PATTERNS
+========================================================
+
+1. Document Structure:
+   ```python
+   {
+       "page_content": "The actual text content",
+       "metadata": {
+           "source_type": "source_name",
+           "unique_id": "xxx",
+           "title": "Document Title",
+           "url": "https://...",
+           "indexed_at": "timestamp",
+           # source-specific fields
+       }
+   }
+   ```
+
+2. Connector Interface:
+   ```python
+   class SourceConnector:
+       def __init__(self)
+       async def sync_content(self) -> Dict
+       def search(self, query: str, n_results: int) -> List[Dict]
+       def get_stats(self) -> Dict
+   ```
+
+3. URL Generation:
+   - Notion: https://www.notion.so/{page_id_without_hyphens}
+   - Airtable: https://airtable.com/{base_id}/{table_id}/{record_id}
+   - Pattern: Build from available IDs
+
+4. Search Result Format:
+   ```python
+   {
+       "content": "formatted text",
+       "metadata": {...},
+       "distance": float  # for vector search
+   }
+   ```
+
+========================================================
+8. WEB SCRAPER INTEGRATION
+========================================================
+
+Files Created/Modified:
+- src/knowledge_sources/web_scraper/connector.py
+- src/knowledge_sources/web_scraper/v1/* (existing files adapted)
+- Config updates for WEB_CONTENT_URLS_FILE and WEB_CONTENT_SYNC_INTERVAL
+
+Key Features:
+1. Static web page scraping with BeautifulSoup
+2. Dynamic content support with Selenium (requires Chrome)
+3. URL list management via text file
+4. Automatic content chunking for embeddings
+5. Metadata preservation for web citations
+
+Implementation Details:
+
+a) URL Management (web_content_urls.txt):
+   - Simple text file with one URL per line
+   - Comments supported with # prefix
+   - Easily maintainable list of target pages
+
+b) Web Fetcher (v1/web_fetch.py):
+   - Dual approach: aiohttp/BeautifulSoup for static
+   - Selenium WebDriver for dynamic content
+   - HTML to Markdown conversion
+   - Special handling for ETH publications page
+
+c) Connector (connector.py):
+   - Reads URLs from configuration file
+   - Chunks content for optimal embedding size
+   - Handles both static and dynamic content
+   - Graceful fallback when Chrome unavailable
+   - Clears collection before sync to avoid duplicates
+
+d) Metadata Structure:
+   {
+     "url": "https://...",
+     "web_url": "https://...",
+     "title": "Page Title",
+     "chunk_index": 0,
+     "total_chunks": 5,
+     "source_type": "web_scraper",
+     "content_type": "webpage" or "publication",
+     "indexed_at": "ISO timestamp"
+   }
+
+e) Current Limitations:
+   - Dynamic content scraping requires Chrome/Chromium
+   - Publications page currently skipped if Chrome unavailable
+   - No incremental updates (full resync each time)
+
+========================================================
+FUTURE ENHANCEMENTS
+========================================================
+
+1. Add more knowledge sources:
+   - Google Drive documents
+   - Confluence pages
+   - GitHub repositories
+   - Slack message history
+
+2. Advanced features:
+   - Incremental updates (only sync changes)
+   - Multi-modal support (images, PDFs)
+   - Permission-based access control
+   - Source-specific search parameters
+   - Alternative to Selenium for dynamic content
+
+3. Performance optimizations:
+   - Parallel source syncing
+   - Smarter chunking strategies
+   - Caching frequently accessed data
+   - Background sync with notifications
+
+4. Enhanced citations:
+   - Preview snippets
+   - Last modified timestamps
+   - Author information
+   - Access permissions
+
+5. Web Scraper Improvements:
+   - Install Chrome in Docker/server environments
+   - Add support for authenticated pages
+   - Implement change detection
+   - Add more sophisticated content extraction
+
+========================================================
+9. GOOGLE DRIVE INTEGRATION
+========================================================
+
+Files Created/Modified:
+- src/knowledge_sources/google_drive/connector.py
+- src/knowledge_sources/google_drive/v1/* (existing implementation reused)
+- Config updates for GOOGLE_DRIVE_CREDENTIALS_PATH and GOOGLE_DRIVE_TOKEN_PATH
+
+Key Features:
+1. Supports multiple file types (PDF, Word, PowerPoint, Google Docs/Sheets/Slides, etc.)
+2. OAuth 2.0 authentication for secure access
+3. Incremental sync (only new/modified files)
+4. Automatic text extraction from various formats
+5. Document chunking with overlap for better search
+
+Implementation Details:
+
+a) Authentication (v1/auth/google_auth.py):
+   - OAuth 2.0 flow with Google Drive API
+   - Credentials stored in credentials.json
+   - Token persistence in token.pickle
+   - Read-only access to user's Drive
+
+b) File Processing:
+   - Multiple extractors for different file types
+   - PDF: PyMuPDF for text extraction
+   - Google Docs: Export as plain text
+   - Office files: python-docx, python-pptx
+   - Spreadsheets: pandas for data extraction
+
+c) Connector (connector.py):
+   - Tracks file modifications via last_sync.json
+   - Chunks documents (1000 chars, 200 overlap)
+   - Stores in ChromaDB with full metadata
+   - Generates Google Drive URLs for citations
+
+d) Metadata Structure:
+   {
+     "file_id": "1abc...",
+     "file_name": "Project Report.pdf",
+     "chunk_index": 0,
+     "total_chunks": 5,
+     "file_type": ".pdf",
+     "mime_type": "application/pdf",
+     "modified_time": "2024-01-15T...",
+     "source_type": "google_drive",
+     "google_drive_url": "https://drive.google.com/file/d/1abc.../view",
+     "indexed_at": "ISO timestamp"
+   }
+
+e) Setup Requirements:
+   1. Create Google Cloud Project
+   2. Enable Google Drive API
+   3. Create OAuth 2.0 credentials (Desktop App)
+   4. Download credentials.json to:
+      src/knowledge_sources/google_drive/v1/credentials.json
+   5. First run will open browser for authorization
+
+f) Current Status:
+   - Fully integrated with sync manager
+   - Searches through knowledge retriever
+   - Requires OAuth setup for activation
+   - Gracefully skips if credentials missing
+
+This implementation provides a solid foundation for a multi-source
+knowledge base with proper citation support and flexible architecture
+for future expansions.

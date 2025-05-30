@@ -1,0 +1,101 @@
+# Email Knowledge Source Configuration
+name: email
+enabled: true
+description: "Indexes and searches email content from various providers"
+
+# Email providers
+providers:
+  gmail:
+    enabled: true
+    auth:
+      credentials_path: "credentials/gmail_credentials.json"
+      token_path: "credentials/gmail_token.json"
+      scopes:
+        - "https://www.googleapis.com/auth/gmail.readonly"
+    # Labels to include (leave empty for all)
+    labels: []
+    # Exclude labels
+    exclude_labels:
+      - "SPAM"
+      - "TRASH"
+      - "DRAFT"
+  
+  outlook:
+    enabled: false
+    auth:
+      client_id: "${OUTLOOK_CLIENT_ID}"
+      client_secret: "${OUTLOOK_CLIENT_SECRET}"
+      tenant_id: "${OUTLOOK_TENANT_ID}"
+    # Folders to include
+    folders: []
+    # Exclude folders
+    exclude_folders:
+      - "Junk Email"
+      - "Deleted Items"
+      - "Drafts"
+  
+  imap:
+    enabled: false
+    auth:
+      host: "${IMAP_HOST}"
+      port: 993
+      username: "${IMAP_USERNAME}"
+      password: "${IMAP_PASSWORD}"
+      use_ssl: true
+    # Folders to include
+    folders: []
+
+# Source configuration
+source:
+  # Time range for emails
+  time_range:
+    # Past emails (days)
+    past_days: 90
+    # Maximum age (days, 0 for no limit)
+    max_age_days: 365
+  # Include sent emails
+  include_sent: true
+  # Include received emails
+  include_received: true
+  # Include attachments
+  include_attachments: false
+  # Maximum email size in KB
+  max_email_size: 1000
+  # Thread emails
+  thread_emails: true
+
+# Indexing configuration
+indexing:
+  # How often to sync in minutes
+  sync_interval: 30
+  # Batch size for fetching
+  batch_size: 100
+  # Extract headers
+  extract_headers: true
+  # Extract recipients
+  extract_recipients: true
+  # Extract attachments metadata
+  extract_attachment_metadata: true
+  # Parse email signatures
+  parse_signatures: true
+  # Remove quoted text
+  remove_quotes: true
+
+# Search configuration
+search:
+  # Maximum results to return
+  max_results: 10
+  # Search in subject
+  search_subject: true
+  # Search in body
+  search_body: true
+  # Search in sender
+  search_sender: true
+  # Search in recipients
+  search_recipients: true
+  # Include thread context
+  include_thread: true
+  # Privacy mode (redact sensitive info)
+  privacy_mode: false
+  # Snippet length
+  snippet_length: 500
